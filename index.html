@@ -28,7 +28,8 @@ body{margin:0;font-family:var(--sans);background:var(--frost);color:var(--navy);
 .f{display:flex;flex-direction:column;gap:4px}
 .f.full{grid-column:1/-1}
 .f label{font-size:.72rem;font-weight:700;color:var(--slate)}
-.f input,.f select,.f textarea{padding:9px 10px;border:1.5px solid var(--fog);border-radius:var(--r);font-family:var(--sans);font-size:.86rem;outline:none;background:#fff;width:100%}
+.f input,.f select,.f textarea{padding:9px 10px;border:1.5px solid var(--fog);border-radius:var(--r);font-family:var(--sans);font-size:.86rem;outline:none;background:#fff;width:100%;height:40px;-webkit-appearance:none;appearance:none}
+.f textarea{height:auto;min-height:44px}
 .f input:focus,.f select:focus,.f textarea:focus{border-color:var(--blue-mid)}
 .f textarea{resize:vertical;min-height:44px}
 .chk-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}

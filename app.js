@@ -72,9 +72,7 @@ function uuid(){ return 'f'+Date.now().toString(36)+Math.random().toString(36).s
 function blankFicha(){
   return {
     id: uuid(), fecha: new Date().toISOString().slice(0,10), creado: Date.now(), modificado: Date.now(),
-    contacto:{ nombre:'', rut:'', telefono:'', email:'', nGrupoFamiliar:'', region:'', comuna:'', sector:'',
-      genero:'', puebloOriginario:'No', puebloCual:'', aporteDinero:false, aporteBienes:false, aporteManoObra:false,
-      agricultorInteresado:'Si' },
+    contacto:{ nombre:'', rut:'', telefono:'', region:'', comuna:'', sector:'' },
     proyecto:{ nombreProyecto:'', consultor:'', rolAvaluo:'', sistemaRiego:'', supTotalHa:'', supRegarHa:'',
       coordNorte:'', coordEste:'', huso:'18' },
     fuente:{ tipo:'', coordNorte:'', coordEste:'', huso:'18', caracteristicas:'', observaciones:'',
@@ -211,30 +209,15 @@ function esc(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
 const RENDERERS = {
   contacto(){
     const c=F.contacto;
-    return `<div class="sl">Información de contacto</div>
+    return `<div class="sl">Identificación del beneficiario</div>
     <div class="fg">
       ${field('Nombre completo','ct-nombre',c.nombre,{full:true})}
       ${field('RUT','ct-rut',c.rut)}
       ${field('Teléfono','ct-tel',c.telefono)}
-      ${field('E-mail','ct-mail',c.email,{full:true})}
-      ${field('N° Grupo Familiar','ct-ngf',c.nGrupoFamiliar,{type:'number'})}
       ${field('Región','ct-region',c.region)}
       ${field('Comuna','ct-comuna',c.comuna)}
-      ${field('Sector','ct-sector',c.sector)}
-      ${field('Género','ct-genero',c.genero,{type:'select',options:['Femenino','Masculino'],placeholder:true})}
-      ${field('¿Pertenece a Pueblo Originario?','ct-pueblo',c.puebloOriginario,{type:'radio'})}
-      ${field('¿Cuál pueblo?','ct-pueblocual',c.puebloCual)}
-    </div>
-    <hr class="sep">
-    <div class="sl">Aporte del postulante</div>
-    <div class="chk-row">
-      <label class="chk"><input type="checkbox" id="ct-apdinero" ${c.aporteDinero?'checked':''}> En dinero</label>
-      <label class="chk"><input type="checkbox" id="ct-apbienes" ${c.aporteBienes?'checked':''}> En bienes comprados</label>
-      <label class="chk"><input type="checkbox" id="ct-apmano" ${c.aporteManoObra?'checked':''}> En mano de obra</label>
-    </div>
-    <hr class="sep">
-    ${field('¿Agricultor/a interesado en participar?','ct-interes',c.agricultorInteresado,{type:'radio'})}
-    `;
+      ${field('Sector / Localidad','ct-sector',c.sector)}
+    </div>`;
   },
   proyecto(){
     const p=F.proyecto;
@@ -394,11 +377,8 @@ function guardarPasoActual(){
   const s = STEPS[curStep].id;
   if(s==='contacto'){
     const c=F.contacto;
-    c.nombre=val('ct-nombre'); c.rut=val('ct-rut'); c.telefono=val('ct-tel'); c.email=val('ct-mail');
-    c.nGrupoFamiliar=val('ct-ngf'); c.region=val('ct-region'); c.comuna=val('ct-comuna'); c.sector=val('ct-sector');
-    c.genero=val('ct-genero'); c.puebloOriginario=radioVal('ct-pueblo'); c.puebloCual=val('ct-pueblocual');
-    c.aporteDinero=val('ct-apdinero'); c.aporteBienes=val('ct-apbienes'); c.aporteManoObra=val('ct-apmano');
-    c.agricultorInteresado=radioVal('ct-interes');
+    c.nombre=val('ct-nombre'); c.rut=val('ct-rut'); c.telefono=val('ct-tel');
+    c.region=val('ct-region'); c.comuna=val('ct-comuna'); c.sector=val('ct-sector');
   } else if(s==='proyecto'){
     const p=F.proyecto;
     p.nombreProyecto=val('pr-nombre'); p.consultor=val('pr-consultor'); p.rolAvaluo=val('pr-rol');
@@ -691,82 +671,145 @@ function exportarJSONDisenador(){
   toast('JSON para Diseñador exportado');
 }
 
-// ---------- PDF (impresión) ----------
+// ---------- PDF (impresión) — layout estilo ficha FileMaker ----------
 function exportarPDF(){
   guardarPasoActual();
-  const F_ = F;
-  const c=F_.contacto, p=F_.proyecto, fu=F_.fuente, te=F_.tenencia, ca=F_.corrobActual, cp=F_.corrobProyecto, en=F_.energia, ot=F_.otros, es=F_.encuestador;
-  const cult = v=> v && v.cultivo==='Otro'? v.cultivoOtro : (v?v.cultivo:'');
-  const row = (l,v)=> `<div style="display:flex;border:1px solid #999;"><div style="width:42%;padding:4px 6px;font-weight:600;background:#f0f0f0;border-right:1px solid #999">${l}</div><div style="flex:1;padding:4px 6px">${esc(v)}</div></div>`;
-  const html = `
-  <div style="font-family:Arial,sans-serif;font-size:11px;color:#111;max-width:760px;margin:auto">
-    <h2 style="text-align:center;margin:6px 0">FICHA VISITA TERRENO<br><span style="font-size:12px;font-weight:400">Para levantamiento de demanda</span></h2>
-    <p style="text-align:right">Fecha: ${esc(F_.fecha)}</p>
-    <div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">Información de contacto</div>
-    ${row('Nombre',c.nombre)} ${row('RUT',c.rut)} ${row('Teléfono',c.telefono)} ${row('E-mail',c.email)}
-    ${row('N° Grupo Familiar',c.nGrupoFamiliar)} ${row('Región/Comuna/Sector', [c.region,c.comuna,c.sector].filter(Boolean).join(' / '))}
-    ${row('Género',c.genero)} ${row('Pueblo originario',(c.puebloOriginario==='Si'?'Sí — '+c.puebloCual:'No'))}
-    ${row('Aporte postulante',[c.aporteDinero&&'Dinero',c.aporteBienes&&'Bienes',c.aporteManoObra&&'Mano de obra'].filter(Boolean).join(', '))}
-    ${row('Interesado en participar',c.agricultorInteresado)}
+  const F_=F;
+  const c=F_.contacto, p=F_.proyecto, fu=F_.fuente, te=F_.tenencia;
+  const ca=F_.corrobActual, cp=F_.corrobProyecto, en=F_.energia, ot=F_.otros, es=F_.encuestador;
+  const cult=v=> v&&v.cultivo==='Otro'? v.cultivoOtro:(v?v.cultivo:'');
 
-    <div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">Proyecto</div>
-    ${row('Nombre del proyecto',p.nombreProyecto)} ${row('Consultor',p.consultor)} ${row('ROL de avalúo',p.rolAvaluo)}
-    ${row('Sistema de riego',p.sistemaRiego)} ${row('Sup. Total / Sup. a Regar [ha]', (p.supTotalHa||'-')+' / '+(p.supRegarHa||'-'))}
-    ${row('Coordenadas proyecto', 'Norte '+p.coordNorte+' · Este '+p.coordEste+' · Huso '+p.huso)}
+  // estilos base
+  const S={
+    page:`font-family:Arial,Helvetica,sans-serif;font-size:10.5px;color:#111;max-width:720px;margin:0 auto`,
+    hdr:`text-align:center;margin:0 0 4px`,
+    sec:`background:#1e3a5f;color:#fff;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:5px 8px;margin-top:10px`,
+    tbl:`width:100%;border-collapse:collapse;margin:0`,
+    lbl:`background:#edf3f9;font-weight:700;padding:5px 8px;border:1px solid #b8c9db;width:38%;vertical-align:top`,
+    val:`background:#fff;padding:5px 8px;border:1px solid #b8c9db;vertical-align:top`,
+    thd:`background:#2f5c8e;color:#fff;font-weight:700;padding:5px 8px;border:1px solid #1e3a5f;text-align:center`,
+    tdc:`background:#edf3f9;font-weight:600;padding:5px 8px;border:1px solid #b8c9db`,
+    tda:`background:#fff;padding:5px 8px;border:1px solid #b8c9db;text-align:center`
+  };
 
-    <div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">1. Fuente de agua</div>
-    ${row('Tipo fuente',fu.tipo)} ${row('Coord. captación','Norte '+fu.coordNorte+' · Este '+fu.coordEste+' · Huso '+fu.huso)}
-    ${row('Características',fu.caracteristicas)} ${row('Observaciones',fu.observaciones)}
-    ${row('Caudal disponible [l/s]',fu.caudalLs)} ${row('Horas riego disp. [hr/día]',fu.horasRiegoDia)}
+  // helpers
+  const sec=t=>`<div style="${S.sec}">${t}</div>`;
+  const row=(l,v,l2,v2)=>{
+    if(l2!==undefined) return `<tr><td style="${S.lbl}">${l}</td><td style="${S.val}">${esc(v)}</td><td style="${S.lbl}">${l2}</td><td style="${S.val}">${esc(v2)}</td></tr>`;
+    return `<tr><td style="${S.lbl}">${l}</td><td style="${S.val};width:62%" colspan="3">${esc(v)}</td></tr>`;
+  };
+  const tbl=(...rows)=>`<table style="${S.tbl}">${rows.join('')}</table>`;
+  const coord=(n,e,h)=> n? `Norte: ${n} — Este: ${e} — Huso: ${h}` : '—';
 
-    <div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">2. Derechos de agua y tenencia</div>
-    ${row('Tipo tenencia tierra',te.tipoTierra)} ${row('Documentos vista tierra',te.docTierra)}
-    ${row('Tipo derecho agua',te.tipoDerecho)} ${row('Documentos vista agua',te.docAgua)}
+  const html=`<div style="${S.page}">
+  <h2 style="${S.hdr};font-size:14px;font-weight:800">FICHA VISITA TERRENO</h2>
+  <h3 style="${S.hdr};font-size:11px;font-weight:400">Para levantamiento de demanda</h3>
+  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+    <span><b>Fecha:</b> ${esc(F_.fecha)}</span>
+    <span><b>Proyecto:</b> ${esc(p.nombreProyecto)}</span>
+  </div>
 
-    <div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">3. Corroboración de caudal</div>
-    <table style="width:100%;border-collapse:collapse;margin-top:4px">
-      <tr><td></td><td style="font-weight:700;border:1px solid #999;padding:4px">Situación actual</td><td style="font-weight:700;border:1px solid #999;padding:4px">Situación con proyecto</td></tr>
-      <tr><td style="font-weight:600;border:1px solid #999;padding:4px">Cultivo</td><td style="border:1px solid #999;padding:4px">${esc(cult(ca))}</td><td style="border:1px solid #999;padding:4px">${esc(cult(cp))}</td></tr>
-      <tr><td style="font-weight:600;border:1px solid #999;padding:4px">Superficie [m²]</td><td style="border:1px solid #999;padding:4px">${esc(ca.superficieM2)}</td><td style="border:1px solid #999;padding:4px">${esc(cp.superficieM2)}</td></tr>
-      <tr><td style="font-weight:600;border:1px solid #999;padding:4px">Método</td><td style="border:1px solid #999;padding:4px">${esc(ca.metodo)}</td><td style="border:1px solid #999;padding:4px">${esc(cp.metodo)}</td></tr>
-      <tr><td style="font-weight:600;border:1px solid #999;padding:4px">Meses</td><td style="border:1px solid #999;padding:4px">${esc(ca.meses)}</td><td style="border:1px solid #999;padding:4px">${esc(cp.meses)}</td></tr>
-      <tr><td style="font-weight:600;border:1px solid #999;padding:4px">Obras</td><td style="border:1px solid #999;padding:4px">${esc(ca.obras)}</td><td style="border:1px solid #999;padding:4px">${esc(cp.obras)}</td></tr>
-    </table>
+  ${sec('Información de contacto')}
+  ${tbl(
+    row('Nombre',c.nombre,'RUT',c.rut),
+    row('Teléfono',c.telefono,'Región',c.region),
+    row('Comuna',c.comuna,'Sector / Localidad',c.sector)
+  )}
 
-    <div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">4. Energización</div>
-    ${row('Disponible',en.tipoDisponible)} ${row('Proyectada',en.tipoProyectada)} ${row('Observaciones',en.observaciones)}
+  ${sec('Proyecto e identificación')}
+  ${tbl(
+    row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),
+    row('Sistema de riego',p.sistemaRiego,'Sup. Total Predio [ha]',p.supTotalHa||'—'),
+    row('Sup. a Regar [ha]',p.supRegarHa||'—','Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso))
+  )}
 
-    <div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">5. Otros datos</div>
-    ${row('Con inicio de actividades',ot.inicioActividades)} ${row('Proyecto incluye IVA',ot.incluyeIVA)} ${row('Participa INDAP',ot.participaINDAP)} ${row('Descripción',ot.descripcion)}
+  ${sec('1.- Fuente de agua para el riego')}
+  ${tbl(
+    row('Tipo fuente de agua',fu.tipo,'Coord. punto captación',coord(fu.coordNorte,fu.coordEste,fu.huso)),
+    row('Características de la fuente',fu.caracteristicas,'Observaciones fuente',fu.observaciones),
+    row('Caudal disponible [l/s]',fu.caudalLs||'—','Horas de riego disp. [hr/día]',fu.horasRiegoDia||'—')
+  )}
 
-    <div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">6. Datos encuestador</div>
-    ${row('Nombre',es.nombre)} ${row('Cargo',es.cargo)} ${row('Contacto',es.datosContacto)} ${row('Con consultor',es.conConsultor+(es.nombreConsultor?' — '+es.nombreConsultor:''))}
+  ${sec('2.- Derechos de agua y tenencia de la tierra')}
+  ${tbl(
+    row('Tipo tenencia de la tierra',te.tipoTierra,'Documentos vista tierra',te.docTierra),
+    row('Tipo de derecho de agua',te.tipoDerecho,'Documentos vista agua',te.docAgua)
+  )}
 
-    <div style="display:flex;gap:20px;margin-top:20px;page-break-inside:avoid">
-      <div style="flex:1;text-align:center">
-        ${F_.firmaEncuestador?`<img src="${F_.firmaEncuestador}" style="height:60px">`:''}
-        <div style="border-top:1px solid #333;margin-top:4px;padding-top:2px">Firma encuestador / consultor</div>
+  ${sec('3.- Corroboración de caudal')}
+  <table style="${S.tbl}">
+    <tr><td style="${S.lbl}"></td><td style="${S.thd}">Situación actual</td><td style="${S.thd}">Situación con proyecto</td></tr>
+    <tr><td style="${S.tdc}">Cultivo de riego</td><td style="${S.tda}">${esc(cult(ca))}</td><td style="${S.tda}">${esc(cult(cp))}</td></tr>
+    <tr><td style="${S.tdc}">Superficie regada [m²]</td><td style="${S.tda}">${esc(ca.superficieM2)}</td><td style="${S.tda}">${esc(cp.superficieM2)}</td></tr>
+    <tr><td style="${S.tdc}">Método de riego</td><td style="${S.tda}">${esc(ca.metodo)}</td><td style="${S.tda}">${esc(cp.metodo)}</td></tr>
+    <tr><td style="${S.tdc}">Meses que riega</td><td style="${S.tda}">${esc(ca.meses)}</td><td style="${S.tda}">${esc(cp.meses)}</td></tr>
+    <tr><td style="${S.tdc}">Obras de riego</td><td style="${S.tda}">${esc(ca.obras)}</td><td style="${S.tda}">${esc(cp.obras)}</td></tr>
+  </table>
+
+  ${sec('4.- Fuente de energía')}
+  ${tbl(
+    row('Tipo disponible',en.tipoDisponible,'Tipo proyectada',en.tipoProyectada),
+    row('Observaciones',en.observaciones,'','')
+  )}
+
+  ${sec('5.- Otros datos')}
+  ${tbl(
+    row('Con inicio de actividades',ot.inicioActividades,'Proyecto incluye IVA',ot.incluyeIVA),
+    row('Participa en programa INDAP',ot.participaINDAP,'Descripción',ot.descripcion)
+  )}
+
+  ${sec('6.- Datos encuestador')}
+  ${tbl(
+    row('Nombre encuestador',es.nombre,'Cargo',es.cargo),
+    row('Con consultor',es.conConsultor+(es.nombreConsultor?' — '+es.nombreConsultor:''),'Contacto',es.datosContacto)
+  )}
+
+  <div style="display:flex;gap:32px;margin-top:24px;page-break-inside:avoid">
+    <div style="flex:1;text-align:center">
+      <div style="height:70px;display:flex;align-items:flex-end;justify-content:center">
+        ${F_.firmaEncuestador?`<img src="${F_.firmaEncuestador}" style="max-height:70px;max-width:100%">`:'&nbsp;'}
       </div>
-      <div style="flex:1;text-align:center">
-        ${F_.firmaBeneficiario?`<img src="${F_.firmaBeneficiario}" style="height:60px">`:''}
-        <div style="border-top:1px solid #333;margin-top:4px;padding-top:2px">Firma beneficiario/a</div>
-      </div>
+      <div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:10px">Firma encuestador / consultor</div>
     </div>
+    <div style="flex:1;text-align:center">
+      <div style="height:70px;display:flex;align-items:flex-end;justify-content:center">
+        ${F_.firmaBeneficiario?`<img src="${F_.firmaBeneficiario}" style="max-height:70px;max-width:100%">`:'&nbsp;'}
+      </div>
+      <div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:10px">Firma beneficiario/a</div>
+    </div>
+  </div>
 
-    ${F_.dibujoEsquematico?`<div style="page-break-before:always"><div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">7. Dibujo esquemático</div><img src="${F_.dibujoEsquematico}" style="width:100%;border:1px solid #999;margin-top:6px"></div>`:''}
+  ${F_.dibujoEsquematico?`
+  <div style="page-break-before:always">
+    ${sec('7.- Dibujo esquemático')}
+    <p style="font-size:9.5px;color:#555;margin:4px 0 6px">Límites prediales · Emplazamiento obra · Accesos · Fuente de agua · Obras existentes · Topografía · Caminos / canales</p>
+    <img src="${F_.dibujoEsquematico}" style="width:100%;border:1px solid #b8c9db">
+  </div>`:''}
 
-    ${F_.fotos.length?`<div style="page-break-before:always"><div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">8. Fotos referenciales</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">${F_.fotos.map(f=>`<img src="${f.dataUrl}" style="width:48%;border:1px solid #999">`).join('')}</div></div>`:''}
+  ${F_.fotos.length?`
+  <div style="page-break-before:always">
+    ${sec('8.- Fotos referenciales')}
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">
+      ${F_.fotos.map(f=>`<img src="${f.dataUrl}" style="width:calc(50% - 5px);border:1px solid #b8c9db;border-radius:4px">`).join('')}
+    </div>
+  </div>`:''}
 
-    ${F_.anexos.length?`<div style="page-break-before:always"><div style="font-weight:700;background:#dceaf7;padding:4px 6px;margin-top:8px">Anexos</div>
-      ${F_.anexos.map(a=>`<div style="page-break-inside:avoid;margin-top:10px"><div style="font-weight:600">${esc(a.etiqueta||'Documento')}</div><img src="${a.dataUrl}" style="width:100%;border:1px solid #999;margin-top:4px"></div>`).join('')}</div>`:''}
-  </div>`;
-  const area = document.getElementById('printArea');
-  area.innerHTML = html;
-  const w = window.open('', '_blank');
-  w.document.write('<html><head><title>Ficha</title><style>@page{size:letter}body{margin:16px}</style></head><body>'+html+'</body></html>');
+  ${F_.anexos.length?`
+  <div style="page-break-before:always">
+    ${sec('Anexos documentales')}
+    ${F_.anexos.map((a,i)=>`
+    <div style="page-break-inside:avoid;margin-top:12px">
+      <div style="font-weight:700;margin-bottom:4px">${i+1}. ${esc(a.etiqueta||'Documento sin nombre')}</div>
+      <img src="${a.dataUrl}" style="width:100%;border:1px solid #b8c9db;border-radius:4px">
+    </div>`).join('')}
+  </div>`:''}
+</div>`;
+
+  const w=window.open('','_blank');
+  w.document.write(`<html><head><title>Ficha — ${esc(c.nombre||'terreno')}</title>
+    <style>@page{size:letter;margin:18mm}body{margin:0}</style></head><body>${html}</body></html>`);
   w.document.close();
-  setTimeout(()=>w.print(), 400);
+  setTimeout(()=>w.print(),500);
 }
 
 // ---------- Init ----------
