@@ -121,7 +121,7 @@ async function guardarFicha(){F.modificado=Date.now();await idbPut(F);}
 
 // ---- Helpers formulario ----
 function val(id){const e=document.getElementById(id);if(!e)return '';if(e.type==='checkbox')return e.checked;return e.value;}
-function radioVal(id){const h=document.getElementById(id+'_hidden');return h?h.value:'';}
+function radioVal(id){const el=document.querySelector(`input[name="${id}"]:checked`);return el?el.value:'';}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 
 function field(label,id,value,opts={}){
@@ -133,7 +133,7 @@ function field(label,id,value,opts={}){
   if(t==='textarea') return `<div class="f${full}"><label>${label}</label><textarea id="${id}" placeholder="${esc(opts.placeholder||'')}">${esc(value||'')}</textarea></div>`;
   if(t==='radio'){
     const ropts=opts.options||['Si','No'];
-    return `<div class="f${full}"><label>${label}</label><div class="chk-row">${ropts.map(o=>`<label class="chk"><input type="radio" name="${id}" value="${o}"${value===o?' checked':''} onclick="document.getElementById('${id}_hidden').value='${o}'"> ${o}</label>`).join('')}<input type="hidden" id="${id}_hidden" value="${esc(value||'')}"></div></div>`;
+    return `<div class="f${full}"><label>${label}</label><div class="chk-row">${ropts.map(o=>`<label class="chk"><input type="radio" name="${id}" value="${o}"${value===o?' checked':''}> ${o}</label>`).join('')}</div></div>`;
   }
   return `<div class="f${full}"><label>${label}</label><input type="${t}" id="${id}" value="${esc(value||'')}" placeholder="${esc(opts.placeholder||'')}"${opts.step?` step="${opts.step}"`:''} ></div>`;
 }
@@ -182,8 +182,8 @@ const RENDERERS={
       ${field('Tipo fuente de agua','fu-tipo',f.tipo,{type:'select',options:FUENTES_DEFAULT,full:true})}
       ${field('Caudal disponible [l/s]','fu-caudal',f.caudalLs,{type:'number',step:'.01',placeholder:'3.00'})}
       ${field('Hrs. riego/día','fu-horas',f.horasRiegoDia,{type:'number',placeholder:'14'})}
-      ${field('Características','fu-caract',f.caracteristicas,{placeholder:'Ej: diámetro, profundidad'})}
-      ${field('Observaciones','fu-obs',f.observaciones)}
+      ${field('Características','fu-caract',f.caracteristicas,{full:true,placeholder:'Ej: diámetro, profundidad'})}
+      ${field('Observaciones','fu-obs',f.observaciones,{full:true})}
     </div>
     <div class="sl" style="margin-top:12px">Coordenadas punto de captación</div>
     ${coordRow('fu',f.coordNorte,f.coordEste,f.huso)}
@@ -213,7 +213,6 @@ const RENDERERS={
     <div class="fg">
       ${field('Cultivo','srf-cult',s.cultivo,{type:'select',options:cults})}
       ${field('Especifique','srf-cultotro',s.cultivoOtro,{placeholder:'si eligió Otro'})}
-      ${field('Superficie [m²]','srf-sup',s.superficieM2,{type:'number'})}
       ${field('Método proyectado','srf-met',s.metodo,{type:'select',options:metodos})}
       ${field('Meses que regará','srf-meses',s.meses,{placeholder:'Todo el año'})}
       ${field('Obras a ejecutar','srf-obras',s.obras,{full:true})}
@@ -223,11 +222,10 @@ const RENDERERS={
     <div class="fg">
       ${field('Energía disponible','en-disp',en.tipoDisponible,{type:'select',options:['Eléctrica (red)','Diesel / Bencina','No dispone']})}
       ${field('Energía proyectada','en-proy',en.tipoProyectada,{type:'select',options:['Eléctrica (red)','Fotovoltaica','Diesel / Bencina','Mixta']})}
-      ${field('Obs. energía','en-obs',en.observaciones,{placeholder:'Observaciones'})}
       ${field('Con inicio de actividades','ot-inicio',ot.inicioActividades,{type:'radio'})}
       ${field('Proyecto incluye IVA','ot-iva',ot.incluyeIVA,{type:'radio'})}
       ${field('Usuario INDAP','ot-indap',ot.usuarioIndap,{type:'radio'})}
-      ${field('Descripción / Notas','ot-desc',ot.descripcion,{full:true})}
+      ${field('Observaciones energía / Notas','en-obs-desc',en.observaciones+(ot.descripcion?'\n'+ot.descripcion:''),{type:'textarea',full:true})}
     </div>`;
   },
 
@@ -242,7 +240,7 @@ const RENDERERS={
     <hr class="sep">
     <div class="sl">Croquis esquemático</div>
     <p class="hint">Límites prediales · Emplazamiento obra · Accesos · Fuente de agua · Topografía · Caminos / canales</p>
-    <div class="sig-box" style="border-style:solid"><canvas id="croquisCanvas" style="height:240px"></canvas></div>
+    <div class="sig-box" style="border-style:solid"><canvas id="croquisCanvas" style="height:480px"></canvas></div>
     <button class="btn sm" onclick="limpiarCroquis()">Limpiar</button>`;
   },
 
@@ -260,11 +258,12 @@ const RENDERERS={
       <div class="info">
         <div style="font-weight:700;font-size:.85rem;margin-bottom:4px">${esc(a.etiqueta||'Sin nombre')}</div>
         <input value="${esc(a.etiqueta)}" onchange="renombrarAnexo(${i},this.value)" placeholder="Renombrar…">
+        <button class="btn sm" style="margin-top:6px" onclick="descargarAnexo(${i})">⬇ Descargar</button>
       </div>
       <button class="btn sm warn" onclick="quitarAnexo(${i})">✕</button>
     </div>`).join('');
     return `<div class="sl">Documentos escaneados</div>
-    <p class="hint">Primero ingresa el nombre del documento, luego toma la foto. Se recortará y enderezará automáticamente.</p>
+    <p class="hint">Ingresa el nombre del documento, luego toma la foto. Se recortará y enderezará automáticamente. Los anexos se incluyen en el .json de exportación.</p>
     <input type="file" accept="image/*" capture="environment" id="anexoInput" style="display:none" onchange="iniciarEscaneo(event)">
     <button class="btn pri" onclick="pedirNombreYEscanear()">📄 Escanear documento</button>
     ${items}`;
@@ -300,24 +299,29 @@ function guardarPasoActual(){
   }else if(s==='superficie_energia'){
     const a=F.sra,sf=F.srf,en=F.energia,ot=F.otros;
     a.cultivo=val('sra-cult');a.cultivoOtro=val('sra-cultotro');a.superficieM2=val('sra-sup');a.metodo=val('sra-met');a.meses=val('sra-meses');a.obras=val('sra-obras');
-    sf.cultivo=val('srf-cult');sf.cultivoOtro=val('srf-cultotro');sf.superficieM2=val('srf-sup');sf.metodo=val('srf-met');sf.meses=val('srf-meses');sf.obras=val('srf-obras');
-    en.tipoDisponible=val('en-disp');en.tipoProyectada=val('en-proy');en.observaciones=val('en-obs');
-    ot.inicioActividades=radioVal('ot-inicio');ot.incluyeIVA=radioVal('ot-iva');ot.usuarioIndap=radioVal('ot-indap');ot.descripcion=val('ot-desc');
+    sf.cultivo=val('srf-cult');sf.cultivoOtro=val('srf-cultotro');sf.metodo=val('srf-met');sf.meses=val('srf-meses');sf.obras=val('srf-obras');
+    en.tipoDisponible=val('en-disp');en.tipoProyectada=val('en-proy');
+    const enobs=val('en-obs-desc');en.observaciones=enobs;ot.descripcion='';
+    ot.inicioActividades=radioVal('ot-inicio');ot.incluyeIVA=radioVal('ot-iva');ot.usuarioIndap=radioVal('ot-indap');
   }
   F.modificado=Date.now();
 }
 
 // ---- GPS + UTM ----
 function capturarGPS(pfx){
-  if(!navigator.geolocation){toast('GPS no disponible');return;}
-  toast('Obteniendo ubicación…');
+  if(!navigator.geolocation){toast('GPS no disponible en este dispositivo');return;}
+  toast('Solicitando ubicación…');
   navigator.geolocation.getCurrentPosition(pos=>{
     const u=toUTM(pos.coords.latitude,pos.coords.longitude);
     document.getElementById(pfx+'-utmn').value=u.n;
     document.getElementById(pfx+'-utme').value=u.e;
     document.getElementById(pfx+'-huso').value=u.zone;
     toast('Coordenadas capturadas ✓');
-  },err=>toast('GPS: '+err.message),{enableHighAccuracy:true,timeout:15000});
+  },err=>{
+    if(err.code===1) toast('Permiso GPS denegado. En iPad: Ajustes › Privacidad › Localización › Safari → Permitir');
+    else if(err.code===2) toast('Señal GPS no disponible. Sal al exterior o ingresa manualmente.');
+    else toast('Error GPS ('+err.code+'): '+err.message);
+  },{enableHighAccuracy:true,timeout:15000});
 }
 function toUTM(lat,lon){
   const a=6378137,e=0.081819191,k0=0.9996;
@@ -418,6 +422,13 @@ function applyCrop(){
 }
 function renombrarAnexo(i,v){F.anexos[i].etiqueta=v;}
 function quitarAnexo(i){F.anexos.splice(i,1);renderStep();}
+function descargarAnexo(i){
+  const a=F.anexos[i];
+  const link=document.createElement('a');
+  link.href=a.dataUrl;
+  link.download=(a.etiqueta||'anexo').replace(/[^\w\s-]/g,'')+'_'+(i+1)+'.jpg';
+  link.click();
+}
 
 // ---- Exportar JSON ----
 function nombreBase(){return((F.contacto.nombre||'ficha').trim().replace(/\s+/g,'_').replace(/[^\w-]/g,'')||'ficha')+'_'+F.fecha;}
@@ -486,9 +497,9 @@ function exportarPDF(){
     <div style="flex:1;text-align:center"><div style="height:72px;display:flex;align-items:flex-end;justify-content:center">${F_.firmaEncuestador?`<img src="${F_.firmaEncuestador}" style="max-height:72px">`:''}</div><div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:9.5px">Firma encuestador / consultor</div></div>
     <div style="flex:1;text-align:center"><div style="height:72px;display:flex;align-items:flex-end;justify-content:center">${F_.firmaBeneficiario?`<img src="${F_.firmaBeneficiario}" style="max-height:72px">`:''}</div><div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:9.5px">Firma beneficiario / agricultor(a)</div></div>
   </div>
-  ${F_.dibujoEsquematico?`<div style="page-break-before:always">${sec('Croquis esquemático')}<img src="${F_.dibujoEsquematico}" style="width:100%;border:1px solid #b8c9db;margin-top:6px"></div>`:''}
-  ${F_.fotos.length?`<div style="page-break-before:always">${sec('Fotos referenciales')}<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">${F_.fotos.map(f=>`<img src="${f.dataUrl}" style="width:calc(50% - 5px);border:1px solid #b8c9db;border-radius:4px">`).join('')}</div></div>`:''}
-  ${F_.anexos.length?`<div style="page-break-before:always">${sec('Documentos anexos')}${F_.anexos.map((ax,i)=>`<div style="page-break-inside:avoid;margin-top:12px"><div style="font-weight:700;font-size:10.5px;margin-bottom:4px">${i+1}. ${esc(ax.etiqueta||'Documento')}</div><img src="${ax.dataUrl}" style="width:100%;border:1px solid #b8c9db;border-radius:4px"></div>`).join('')}</div>`:''}
+  ${F_.dibujoEsquematico?`<div class="pbreak">${sec('Croquis esquemático')}<img src="${F_.dibujoEsquematico}" style="width:100%;border:1px solid #b8c9db;margin-top:6px"></div>`:''}
+  ${F_.fotos.length?`<div class="pbreak">${sec('Fotos referenciales')}<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">${F_.fotos.map(f=>`<img src="${f.dataUrl}" style="width:calc(50% - 5px);border:1px solid #b8c9db;border-radius:4px">`).join('')}</div></div>`:''}
+  ${F_.anexos.length?`<div class="pbreak">${sec('Documentos anexos')}<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:8px">${F_.anexos.map((ax,i)=>`<div style="width:calc(50% - 8px);page-break-inside:avoid;margin-bottom:12px"><div style="font-weight:700;font-size:10.5px;margin-bottom:4px">${i+1}. ${esc(ax.etiqueta||'Documento')}</div><img src="${ax.dataUrl}" style="width:100%;border:1px solid #b8c9db;border-radius:4px"></div>`).join('')}</div></div>`:''}
 </div>`;
 
   // Overlay dentro de la misma página — funciona en iPad PWA sin perder contexto
