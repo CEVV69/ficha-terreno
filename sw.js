@@ -3,18 +3,23 @@ const ASSETS = ['./index.html','./app.js','./manifest.json','./icon-192.png','./
 
 self.addEventListener('install', e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));
-  self.skipWaiting();
+  self.skipWaiting(); // activa inmediatamente sin esperar cierre
 });
+
 self.addEventListener('activate', e=>{
-  e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));
-  self.clients.claim();
+  e.waitUntil(
+    caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))
+  );
+  self.clients.claim(); // toma control de todas las pestañas abiertas al instante
 });
+
 self.addEventListener('fetch', e=>{
   e.respondWith(
-    caches.match(e.request).then(cached=> cached || fetch(e.request).then(res=>{
-      const copy = res.clone();
-      caches.open(CACHE).then(c=>c.put(e.request, copy));
-      return res;
-    }).catch(()=>cached))
+    caches.open(CACHE).then(cache=>
+      fetch(e.request).then(res=>{
+        cache.put(e.request, res.clone());
+        return res;
+      }).catch(()=>cache.match(e.request))
+    )
   );
 });
