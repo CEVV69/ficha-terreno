@@ -1,100 +1,58 @@
 // ============================================================
-// Ficha de Terreno — Levantamiento de demanda (riego)
-// App offline (IndexedDB) — exporta JSON compatible con Diseñador de Riego
+// Ficha de Terreno v3 — Levantamiento de demanda (riego)
 // ============================================================
 
-// ---------- Catálogos (idénticos a los de Diseñador de Riego v129, para compatibilidad directa) ----------
 const CULTIVOS_DEFAULT = ['Alfalfa','Pradera / Ballica','Maíz','Papa','Cebada','Trigo','Remolacha','Hortalizas','Frutales','Vides','Flores'];
 const FUENTES_DEFAULT = ['Canal de riego','Río / Estero','Lago / Laguna','Pozo profundo','Pozo noria','Pozo zanja','Puntera (wellpoint)','Pozo sondaje (tubería de revestimiento)','Estanque acumulador','Tranque predial','Embalse','Vertiente intrapredial','Aguas lluvia (acumulación)'];
 const DERECHO_OPCIONES = [
-  {v:'permanente', l:'Permanente — inscrito en CBR'},
-  {v:'eventual', l:'Eventual — inscrito en CBR'},
+  {v:'permanente', l:'Permanente — inscrito CBR'},
+  {v:'eventual', l:'Eventual — inscrito CBR'},
   {v:'no-inscrito-lluvia', l:'No inscrito — Art. 10 (Aguas lluvia)'},
   {v:'no-inscrito-vertiente', l:'No inscrito — Art. 20 (Vertiente/laguna)'},
   {v:'no-inscrito-art56', l:'No inscrito — Art. 56 (Consumo humano / PEPA)'}
 ];
-const SISTEMA_OPCIONES = [
-  {v:'got', l:'Goteo'}, {v:'asp', l:'Aspersión'}, {v:'mic', l:'Microaspersión'}, {v:'car', l:'Carrete'}
-];
-// Mapa canónico -> id de campo en Diseñador de Riego, por prefijo de sistema
+const SISTEMA_MAP = {got:'Goteo', asp:'Aspersión', mic:'Microaspersión', car:'Carrete'};
 const PFX = {got:'g', asp:'a', mic:'m', car:'c'};
-// campos comunes a los 4 sistemas en Diseñador (sufijo tras el prefijo)
-const DR_FIELD_MAP = {
-  consultor:'-consultor', nombreProyecto:'-nombre-proy', propietario:'-prop', rol:'-rol',
-  sector:'-sec', comuna:'-com', huso:'-huso', utmNorte:'-utmn', utme:'-utme',
-  cultivo:'-cult', tipoFuente:'-tfue', tipoDerecho:'-der-tipo', caudalLs:'-q', horasRiegoDia:'-hrs'
-};
-// sup. total / sup. a regar tienen ids distintos por sistema en Diseñador
-const DR_SUP_TOTAL = {asp:'a-sttot', got:null, mic:null, car:null}; // solo Aspersión trae "Sup. Total Predio" propio; los demás usan -sup / -strie / -supr
 const DR_SUP_REGAR = {asp:'a-strie', car:'c-supr', got:'g-sup', mic:'m-sup'};
 
 // ---------- IndexedDB ----------
 let DB;
 function idbOpen(){
   return new Promise((res,rej)=>{
-    const req = indexedDB.open('fichaTerrenoDB', 1);
-    req.onupgradeneeded = e=>{
-      const db = e.target.result;
-      if(!db.objectStoreNames.contains('fichas')) db.createObjectStore('fichas',{keyPath:'id'});
-    };
-    req.onsuccess = e=>{ DB=e.target.result; res(DB); };
-    req.onerror = e=> rej(e);
+    const req=indexedDB.open('fichaTerrenoDB',2);
+    req.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains('fichas'))db.createObjectStore('fichas',{keyPath:'id'});};
+    req.onsuccess=e=>{DB=e.target.result;res(DB);};
+    req.onerror=e=>rej(e);
   });
 }
-function idbPut(ficha){
-  return new Promise((res,rej)=>{
-    const tx = DB.transaction('fichas','readwrite');
-    tx.objectStore('fichas').put(ficha);
-    tx.oncomplete=()=>res(); tx.onerror=e=>rej(e);
-  });
-}
-function idbDelete(id){
-  return new Promise((res,rej)=>{
-    const tx = DB.transaction('fichas','readwrite');
-    tx.objectStore('fichas').delete(id);
-    tx.oncomplete=()=>res(); tx.onerror=e=>rej(e);
-  });
-}
-function idbGetAll(){
-  return new Promise((res,rej)=>{
-    const tx = DB.transaction('fichas','readonly');
-    const req = tx.objectStore('fichas').getAll();
-    req.onsuccess=()=>res(req.result||[]); req.onerror=e=>rej(e);
-  });
-}
+function idbPut(f){return new Promise((res,rej)=>{const tx=DB.transaction('fichas','readwrite');tx.objectStore('fichas').put(f);tx.oncomplete=()=>res();tx.onerror=e=>rej(e);});}
+function idbDelete(id){return new Promise((res,rej)=>{const tx=DB.transaction('fichas','readwrite');tx.objectStore('fichas').delete(id);tx.oncomplete=()=>res();tx.onerror=e=>rej(e);});}
+function idbGetAll(){return new Promise((res,rej)=>{const tx=DB.transaction('fichas','readonly');const req=tx.objectStore('fichas').getAll();req.onsuccess=()=>res(req.result||[]);req.onerror=e=>rej(e);});}
 
 // ---------- Estado ----------
-let F = null; // ficha actual en edición
-let curStep = 0;
-
-function uuid(){ return 'f'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+let F=null, curStep=0;
+function uuid(){return 'f'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);}
 
 function blankFicha(){
   return {
-    id: uuid(), fecha: new Date().toISOString().slice(0,10), creado: Date.now(), modificado: Date.now(),
-    contacto:{ nombre:'', rut:'', telefono:'', region:'', comuna:'', sector:'' },
-    proyecto:{ nombreProyecto:'', consultor:'', rolAvaluo:'', sistemaRiego:'', supTotalHa:'', supRegarHa:'',
-      coordNorte:'', coordEste:'', huso:'18' },
-    fuente:{ tipo:'', coordNorte:'', coordEste:'', huso:'18', caracteristicas:'', observaciones:'',
-      caudalLs:'', horasRiegoDia:'' },
-    tenencia:{ tipoTierra:'', docTierra:'Si', tipoDerecho:'', docAgua:'Si' },
-    corrobActual:{ cultivo:'', cultivoOtro:'', superficieM2:'', metodo:'', meses:'', obras:'' },
-    corrobProyecto:{ cultivo:'', cultivoOtro:'', superficieM2:'', metodo:'', meses:'', obras:'' },
-    energia:{ tipoDisponible:'', tipoProyectada:'', observaciones:'' },
-    otros:{ inicioActividades:'No', incluyeIVA:'Si', participaINDAP:'Si', descripcion:'' },
-    encuestador:{ nombre:'', cargo:'', datosContacto:'', conConsultor:'No', nombreConsultor:'' },
-    firmaEncuestador:'', firmaBeneficiario:'', dibujoEsquematico:'',
-    fotos:[], anexos:[]
+    id:uuid(), fecha:new Date().toISOString().slice(0,10), creado:Date.now(), modificado:Date.now(),
+    contacto:{nombre:'',rut:'',telefono:'',region:'',comuna:'',sector:''},
+    proyecto:{nombreProyecto:'',consultor:'',rolAvaluo:'',sistemas:[],supTotalHa:'',supRegarHa:'',coordNorte:'',coordEste:'',huso:'18'},
+    fuente:{tipo:'',coordNorte:'',coordEste:'',huso:'18',caracteristicas:'',observaciones:'',caudalLs:'',horasRiegoDia:''},
+    tenencia:{tipoTierra:'',docTierra:'Si',tipoDerecho:'',docAgua:'Si'},
+    sra:{cultivo:'',cultivoOtro:'',superficieM2:'',metodo:'',meses:'',obras:''},
+    srf:{cultivo:'',cultivoOtro:'',superficieM2:'',metodo:'',meses:'',obras:''},
+    energia:{tipoDisponible:'',tipoProyectada:'',observaciones:''},
+    otros:{inicioActividades:'No',incluyeIVA:'Si',usuarioIndap:'Si',descripcion:''},
+    firmaEncuestador:'',firmaBeneficiario:'',dibujoEsquematico:'',
+    fotos:[],anexos:[]
   };
 }
 
-// ---------- UI: toast ----------
-function toast(msg){
-  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('on');
-  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('on'),2200);
-}
+// ---------- Toast ----------
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),2200);}
 
-// ---------- Home / listado ----------
+// ---------- Home ----------
 async function goHome(){
   document.getElementById('home').style.display='block';
   document.getElementById('editor').style.display='none';
@@ -104,112 +62,96 @@ async function goHome(){
   await renderLista();
 }
 async function renderLista(){
-  const fichas = (await idbGetAll()).sort((a,b)=>b.modificado-a.modificado);
-  const el = document.getElementById('listaFichas');
-  document.getElementById('emptyMsg').style.display = fichas.length? 'none':'block';
-  el.innerHTML = fichas.map(f=>`
-    <div class="list-item">
-      <div onclick="abrirFicha('${f.id}')" style="flex:1;cursor:pointer">
-        <div style="font-weight:700">${f.contacto.nombre || '(sin nombre)'}</div>
-        <div class="meta">${f.fecha} · ${f.contacto.comuna||''} ${f.contacto.sector? '· '+f.contacto.sector:''}</div>
-      </div>
-      <button class="btn sm" onclick="abrirFicha('${f.id}')">Abrir</button>
-      <button class="btn sm warn" onclick="borrarFicha('${f.id}')">Eliminar</button>
-    </div>`).join('');
+  const fichas=(await idbGetAll()).sort((a,b)=>b.modificado-a.modificado);
+  const el=document.getElementById('listaFichas');
+  document.getElementById('emptyMsg').style.display=fichas.length?'none':'block';
+  el.innerHTML=fichas.map(f=>`<div class="list-item">
+    <div onclick="abrirFicha('${f.id}')" style="flex:1;cursor:pointer">
+      <div style="font-weight:700">${f.contacto.nombre||'(sin nombre)'}</div>
+      <div class="meta">${f.fecha} · ${f.contacto.comuna||''} ${f.contacto.sector?'· '+f.contacto.sector:''}</div>
+    </div>
+    <button class="btn sm" onclick="abrirFicha('${f.id}')">Abrir</button>
+    <button class="btn sm warn" onclick="borrarFicha('${f.id}')">Eliminar</button>
+  </div>`).join('');
 }
-async function borrarFicha(id){
-  if(!confirm('¿Eliminar esta ficha? No se puede deshacer.')) return;
-  await idbDelete(id); toast('Ficha eliminada'); renderLista();
-}
-function nuevaFicha(){ F = blankFicha(); curStep = 0; abrirEditor(); }
-async function abrirFicha(id){
-  const fichas = await idbGetAll();
-  F = fichas.find(f=>f.id===id); curStep = 0; abrirEditor();
-}
+async function borrarFicha(id){if(!confirm('¿Eliminar esta ficha?'))return;await idbDelete(id);toast('Eliminada');renderLista();}
+function nuevaFicha(){F=blankFicha();curStep=0;abrirEditor();}
+async function abrirFicha(id){const fichas=await idbGetAll();F=fichas.find(f=>f.id===id);curStep=0;abrirEditor();}
 function abrirEditor(){
   document.getElementById('home').style.display='none';
   document.getElementById('editor').style.display='block';
   document.getElementById('btnBack').style.display='inline-block';
   document.getElementById('fabNew').style.display='none';
-  document.getElementById('topTitle').textContent = F.contacto.nombre || 'Nueva ficha';
-  renderPills(); renderStep();
+  document.getElementById('topTitle').textContent=F.contacto.nombre||'Nueva ficha';
+  renderPills();renderStep();
 }
 
-// ---------- Definición de pasos ----------
-const STEPS = [
-  {id:'contacto', t:'Contacto'},
-  {id:'proyecto', t:'Proyecto'},
-  {id:'fuente', t:'Fuente agua'},
-  {id:'tenencia', t:'Tenencia'},
-  {id:'corrob', t:'Caudal'},
-  {id:'energia', t:'Energía'},
-  {id:'otros', t:'Otros datos'},
-  {id:'encuestador', t:'Encuestador'},
-  {id:'firmas', t:'Firmas'},
-  {id:'croquis', t:'Croquis'},
-  {id:'fotos', t:'Fotos'},
-  {id:'anexos', t:'Anexos'},
-  {id:'exportar', t:'Guardar / Exportar'}
+// ---------- Pasos ----------
+const STEPS=[
+  {id:'contacto',t:'Contacto'},
+  {id:'proyecto',t:'Proyecto'},
+  {id:'fuente',t:'Fuente agua'},
+  {id:'tenencia',t:'Tenencia'},
+  {id:'superficie',t:'Sup. riego'},
+  {id:'energia_otros',t:'Energía / Otros'},
+  {id:'firmas_croquis',t:'Firmas / Croquis'},
+  {id:'fotos',t:'Fotos'},
+  {id:'anexos',t:'Anexos'},
+  {id:'exportar',t:'Exportar'}
 ];
 function renderPills(){
-  document.getElementById('pillNav').innerHTML = STEPS.map((s,i)=>
+  document.getElementById('pillNav').innerHTML=STEPS.map((s,i)=>
     `<button class="pill ${i===curStep?'on':''}" onclick="irPaso(${i})">${i+1}. ${s.t}</button>`).join('');
 }
-function irPaso(i){ guardarPasoActual(); curStep=i; renderPills(); renderStep(); }
-
+function irPaso(i){guardarPasoActual();curStep=i;renderPills();renderStep();}
 function renderStep(){
-  const s = STEPS[curStep];
-  const el = document.getElementById('stepsWrap');
-  el.innerHTML = `<div class="card">${RENDERERS[s.id]()}</div>
+  const s=STEPS[curStep];
+  document.getElementById('stepsWrap').innerHTML=`<div class="card">${RENDERERS[s.id]()}</div>
     <div class="navbtns">
       <button class="btn" onclick="pasoAnterior()" ${curStep===0?'disabled':''}>‹ Anterior</button>
       <button class="btn pri" onclick="pasoSiguiente()">${curStep===STEPS.length-1?'Finalizar':'Siguiente ›'}</button>
     </div>`;
-  if(s.id==='firmas') setTimeout(initFirmas,0);
-  if(s.id==='croquis') setTimeout(initCroquis,0);
+  if(s.id==='firmas_croquis')setTimeout(()=>{initFirmas();initCroquis();},0);
 }
-function pasoAnterior(){ guardarPasoActual(); if(curStep>0){curStep--; renderPills(); renderStep();} }
-async function pasoSiguiente(){
-  guardarPasoActual();
-  if(curStep<STEPS.length-1){ curStep++; renderPills(); renderStep(); }
-  else { await guardarFicha(); toast('Ficha guardada'); }
-}
-async function guardarFicha(){
-  F.modificado = Date.now();
-  await idbPut(F);
-}
+function pasoAnterior(){guardarPasoActual();if(curStep>0){curStep--;renderPills();renderStep();}}
+async function pasoSiguiente(){guardarPasoActual();if(curStep<STEPS.length-1){curStep++;renderPills();renderStep();}else{await guardarFicha();toast('Ficha guardada');}}
+async function guardarFicha(){F.modificado=Date.now();await idbPut(F);}
 
-// ---------- Helpers de formulario genérico ----------
-function val(id){ const e=document.getElementById(id); if(!e) return undefined; if(e.type==='checkbox') return e.checked; return e.value; }
-function setv(obj,key,id){ const v=val(id); if(v!==undefined) obj[key]=v; }
+// ---------- Helpers de formulario ----------
+function val(id){const e=document.getElementById(id);if(!e)return undefined;if(e.type==='checkbox')return e.checked;return e.value;}
+function radioVal(id){const h=document.getElementById(id+'_hidden');return h?h.value:undefined;}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 
 function field(label,id,value,opts={}){
   const type=opts.type||'text';
   if(type==='select'){
-    const options=(opts.options||[]).map(o=>{
-      const ov = typeof o==='string'? o : o.v; const ol = typeof o==='string'? o : o.l;
-      return `<option value="${esc(ov)}" ${ov===value?'selected':''}>${esc(ol)}</option>`;
-    }).join('');
-    return `<div class="f ${opts.full?'full':''}"><label>${label}</label><select id="${id}">${opts.placeholder?`<option value="">—</option>`:''}${options}</select></div>`;
+    const options=(opts.options||[]).map(o=>{const ov=typeof o==='string'?o:o.v;const ol=typeof o==='string'?o:o.l;return `<option value="${esc(ov)}"${ov===value?' selected':''}>${esc(ol)}</option>`;}).join('');
+    return `<div class="f${opts.full?' full':''}"><label>${label}</label><select id="${id}"><option value="">—</option>${options}</select></div>`;
   }
   if(type==='textarea'){
-    return `<div class="f ${opts.full?'full':''}"><label>${label}</label><textarea id="${id}" placeholder="${esc(opts.placeholder||'')}">${esc(value||'')}</textarea></div>`;
+    return `<div class="f${opts.full?' full':''}"><label>${label}</label><textarea id="${id}" placeholder="${esc(opts.placeholder||'')}">${esc(value||'')}</textarea></div>`;
   }
   if(type==='radio'){
-    return `<div class="f ${opts.full?'full':''}"><label>${label}</label><div class="chk-row">${(opts.options||['Si','No']).map(o=>
-      `<label class="chk"><input type="radio" name="${id}" value="${o}" ${value===o?'checked':''} onchange="document.getElementById('${id}_hidden').value='${o}'"> ${o}</label>`).join('')}
-      <input type="hidden" id="${id}_hidden" value="${esc(value||'')}"></div></div>`;
+    return `<div class="f${opts.full?' full':''}"><label>${label}</label><div class="chk-row">${(opts.options||['Si','No']).map(o=>`<label class="chk"><input type="radio" name="${id}" value="${o}"${value===o?' checked':''} onchange="document.getElementById('${id}_hidden').value=this.value"> ${o}</label>`).join('')}<input type="hidden" id="${id}_hidden" value="${esc(value||'')}"></div></div>`;
   }
-  return `<div class="f ${opts.full?'full':''}"><label>${label}</label><input type="${type}" id="${id}" value="${esc(value||'')}" placeholder="${esc(opts.placeholder||'')}" ${opts.step?`step="${opts.step}"`:''}></div>`;
+  return `<div class="f${opts.full?' full':''}"><label>${label}</label><input type="${type}" id="${id}" value="${esc(value||'')}" placeholder="${esc(opts.placeholder||'')}"${opts.step?` step="${opts.step}"`:''} ${opts.style?`style="${opts.style}"`:''} ></div>`;
 }
-function radioVal(id){ const h=document.getElementById(id+'_hidden'); return h? h.value : undefined; }
-function esc(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
 
-// ---------- RENDERERS por paso ----------
-const RENDERERS = {
+// Fila de coordenadas + botón GPS en la misma línea
+function coordRow(prefix,norte,este,huso,btnPrefix){
+  return `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+    <div class="f" style="flex:3;min-width:110px"><label>UTM Norte [m]</label><input type="number" id="${prefix}-utmn" value="${esc(norte||'')}"></div>
+    <div class="f" style="flex:3;min-width:110px"><label>UTM Este [m]</label><input type="number" id="${prefix}-utme" value="${esc(este||'')}"></div>
+    <div class="f" style="flex:1;min-width:60px;max-width:80px"><label>Huso</label><input type="text" id="${prefix}-huso" value="${esc(huso||'18')}"></div>
+    <button class="btn sm" style="margin-bottom:2px;white-space:nowrap" onclick="capturarGPS('${btnPrefix||prefix}')">📍 Captura coordenadas</button>
+  </div>`;
+}
+
+// ---------- RENDERERS ----------
+const RENDERERS={
   contacto(){
     const c=F.contacto;
-    return `<div class="sl">Identificación del beneficiario</div>
+    return `<div class="sl">Beneficiario</div>
     <div class="fg">
       ${field('Nombre completo','ct-nombre',c.nombre,{full:true})}
       ${field('RUT','ct-rut',c.rut)}
@@ -219,602 +161,424 @@ const RENDERERS = {
       ${field('Sector / Localidad','ct-sector',c.sector)}
     </div>`;
   },
+
   proyecto(){
     const p=F.proyecto;
-    return `<div class="sl">Identificación del proyecto <span class="badge">para Diseñador</span></div>
+    const sys=p.sistemas||[];
+    return `<div class="sl">Identificación del proyecto</div>
     <div class="fg">
-      ${field('Nombre del Proyecto','pr-nombre',p.nombreProyecto,{full:true,placeholder:'Ej: Habilitación de pozo y riego por goteo'})}
-      ${field('Nombre del Consultor / Empresa','pr-consultor',p.consultor,{full:true})}
-      ${field('ROL de Avalúo (SII)','pr-rol',p.rolAvaluo,{placeholder:'Ej: 151-95'})}
-      ${field('Sistema de riego a proyectar','pr-sistema',p.sistemaRiego,{type:'select',options:SISTEMA_OPCIONES,placeholder:true})}
+      ${field('Nombre del proyecto','pr-nombre',p.nombreProyecto,{full:true,placeholder:'Ej: Habilitación pozo y riego por goteo'})}
+      ${field('Consultor / Empresa','pr-consultor',p.consultor,{full:true})}
+      ${field('ROL de Avalúo SII','pr-rol',p.rolAvaluo,{placeholder:'151-95'})}
       ${field('Sup. Total Predio [ha]','pr-suptot',p.supTotalHa,{type:'number',step:'.01'})}
       ${field('Sup. a Regar [ha]','pr-supregar',p.supRegarHa,{type:'number',step:'.01'})}
     </div>
+    <div class="f full" style="margin-bottom:10px">
+      <label>Sistema(s) de riego a proyectar</label>
+      <div class="chk-row">
+        ${Object.entries(SISTEMA_MAP).map(([v,l])=>`<label class="chk"><input type="checkbox" id="pr-sys-${v}"${sys.includes(v)?' checked':''}> ${l}</label>`).join('')}
+      </div>
+    </div>
     <hr class="sep">
     <div class="sl">Coordenadas del proyecto</div>
-    <div class="fg">
-      ${field('UTM Norte [m]','pr-utmn',p.coordNorte,{type:'number'})}
-      ${field('UTM Este [m]','pr-utme',p.coordEste,{type:'number'})}
-      ${field('Huso','pr-huso',p.huso)}
-    </div>
-    <button class="btn sm" onclick="capturarGPS('pr')">📍 Capturar coordenadas GPS</button>
-    <p class="hint">Requiere GPS del dispositivo. Si no hay señal, ingresa manualmente desde otro instrumento.</p>
-    `;
+    ${coordRow('pr',p.coordNorte,p.coordEste,p.huso,'pr')}`;
   },
+
   fuente(){
     const f=F.fuente;
-    return `<div class="sl">Fuente de agua para el riego</div>
+    return `<div class="sl">Fuente de agua</div>
     <div class="fg">
-      ${field('Tipo fuente de agua','fu-tipo',f.tipo,{type:'select',options:FUENTES_DEFAULT,placeholder:true,full:true})}
-      ${field('Coord. captación — Norte','fu-utmn',f.coordNorte,{type:'number'})}
-      ${field('Coord. captación — Este','fu-utme',f.coordEste,{type:'number'})}
-      ${field('Huso','fu-huso',f.huso)}
-      ${field('Características de la fuente','fu-caract',f.caracteristicas,{full:true,placeholder:'Ej: diámetro, profundidad'})}
-      ${field('Observaciones fuente de agua','fu-obs',f.observaciones,{type:'textarea',full:true})}
+      ${field('Tipo fuente de agua','fu-tipo',f.tipo,{type:'select',options:FUENTES_DEFAULT,full:true})}
+      ${field('Características','fu-caract',f.caracteristicas,{placeholder:'Ej: diámetro, profundidad'})}
+      ${field('Observaciones','fu-obs',f.observaciones)}
+      ${field('Caudal disponible [l/s]','fu-caudal',f.caudalLs,{type:'number',step:'.01',placeholder:'3.00'})}
+      ${field('Horas de riego disp. [hr/día]','fu-horas',f.horasRiegoDia,{type:'number',placeholder:'14'})}
     </div>
     <hr class="sep">
-    <div class="sl">Datos para Diseñador <span class="badge">para Diseñador</span></div>
-    <div class="fg">
-      ${field('Caudal Disponible [l/s]','fu-caudal',f.caudalLs,{type:'number',step:'.01',placeholder:'3.00'})}
-      ${field('Horas de Riego Disp. [hr/día]','fu-horas',f.horasRiegoDia,{type:'number',placeholder:'14'})}
-    </div>
-    <button class="btn sm" onclick="capturarGPS('fu')">📍 Capturar coordenadas de captación</button>
-    `;
+    <div class="sl">Coordenadas punto de captación</div>
+    ${coordRow('fu',f.coordNorte,f.coordEste,f.huso,'fu')}`;
   },
+
   tenencia(){
     const t=F.tenencia;
-    return `<div class="sl">Derechos de agua y tenencia de la tierra</div>
+    return `<div class="sl">Tenencia de tierra y agua</div>
     <div class="fg">
-      ${field('Tipo tenencia de la tierra','te-tierra',t.tipoTierra,{type:'select',options:['Propietario/a','Arrendatario/a','Usufructuario/a','Comodatario/a','Sucesión / Herencia','Otro'],placeholder:true})}
-      ${field('¿Vio documentos de tierra?','te-doctierra',t.docTierra,{type:'radio'})}
-      ${field('Tipo de derecho de agua (ITT-01)','te-derecho',t.tipoDerecho,{type:'select',options:DERECHO_OPCIONES,placeholder:true,full:true})}
-      ${field('¿Vio documentos de agua?','te-docagua',t.docAgua,{type:'radio'})}
+      ${field('Tipo tenencia de la tierra','te-tierra',t.tipoTierra,{type:'select',options:['Propietario/a','Arrendatario/a','Usufructuario/a','Comodatario/a','Sucesión / Herencia','Otro']})}
+      ${field('¿Documentos vista?','te-doctierra',t.docTierra,{type:'radio'})}
+      ${field('Tipo de derecho de agua','te-derecho',t.tipoDerecho,{type:'select',options:DERECHO_OPCIONES})}
+      ${field('¿Documentos vista?','te-docagua',t.docAgua,{type:'radio'})}
     </div>`;
   },
-  corrob(){
-    const a=F.corrobActual, p=F.corrobProyecto;
-    const metodoOpts=['Sin riego','Tendido/Surcos','Manguera','Aspersión','Microaspersión','Goteo','Carrete','Otro'];
-    const cultOpts = CULTIVOS_DEFAULT.concat(['Otro']);
-    return `<div class="sl">Corroboración de caudal — Situación ACTUAL</div>
+
+  superficie(){
+    const a=F.sra, p=F.srf;
+    const metodos=['Sin riego','Tendido / Surcos','Manguera','Aspersión','Microaspersión','Goteo','Carrete','Otro'];
+    const cults=CULTIVOS_DEFAULT.concat(['Otro']);
+    return `<div class="sl">Superficie de riego actual (SRA)</div>
     <div class="fg">
-      ${field('Cultivo de riego','ca-cult',a.cultivo,{type:'select',options:cultOpts,placeholder:true})}
-      ${a.cultivo==='Otro'?field('Especifique cultivo','ca-cultotro',a.cultivoOtro):''}
-      ${field('Superficie regada [m²]','ca-sup',a.superficieM2,{type:'number'})}
-      ${field('Método de riego','ca-met',a.metodo,{type:'select',options:metodoOpts,placeholder:true})}
-      ${field('Meses en que riega','ca-meses',a.meses,{placeholder:'Ej: Todo el año'})}
-      ${field('Obras de riego existentes','ca-obras',a.obras,{full:true})}
+      ${field('Cultivo','sra-cult',a.cultivo,{type:'select',options:cults})}
+      ${field('Cultivo (especifique)','sra-cultotro',a.cultivoOtro)}
+      ${field('Superficie [m²]','sra-sup',a.superficieM2,{type:'number'})}
+      ${field('Método de riego','sra-met',a.metodo,{type:'select',options:metodos})}
+      ${field('Meses que riega','sra-meses',a.meses,{placeholder:'Todo el año'})}
+      ${field('Obras existentes','sra-obras',a.obras,{full:true})}
     </div>
     <hr class="sep">
-    <div class="sl">Corroboración de caudal — Situación CON PROYECTO</div>
+    <div class="sl">Superficie de riego futura (SRF)</div>
     <div class="fg">
-      ${field('Cultivo de riego','cp-cult',p.cultivo,{type:'select',options:cultOpts,placeholder:true})}
-      ${p.cultivo==='Otro'?field('Especifique cultivo','cp-cultotro',p.cultivoOtro):''}
-      ${field('Superficie a regar [m²]','cp-sup',p.superficieM2,{type:'number'})}
-      ${field('Método de riego proyectado','cp-met',p.metodo,{type:'select',options:metodoOpts,placeholder:true})}
-      ${field('Meses en que regará','cp-meses',p.meses,{placeholder:'Ej: Todo el año'})}
-      ${field('Obras de riego proyectadas','cp-obras',p.obras,{full:true})}
-    </div>
-    <p class="hint">El cultivo y superficie de la situación con proyecto se usan para precargar Diseñador de Riego.</p>`;
-  },
-  energia(){
-    const e=F.energia;
-    return `<div class="sl">Energización</div>
-    <div class="fg">
-      ${field('Tipo de energía disponible','en-disp',e.tipoDisponible,{type:'select',options:['Eléctrica (red)','Diesel/Bencina','No dispone'],placeholder:true})}
-      ${field('Tipo de energía proyectada','en-proy',e.tipoProyectada,{type:'select',options:['Eléctrica (red)','Fotovoltaica','Diesel/Bencina','Mixta'],placeholder:true})}
-      ${field('Observaciones','en-obs',e.observaciones,{full:true})}
+      ${field('Cultivo','srf-cult',p.cultivo,{type:'select',options:cults})}
+      ${field('Cultivo (especifique)','srf-cultotro',p.cultivoOtro)}
+      ${field('Superficie [m²]','srf-sup',p.superficieM2,{type:'number'})}
+      ${field('Método proyectado','srf-met',p.metodo,{type:'select',options:metodos})}
+      ${field('Meses que regará','srf-meses',p.meses,{placeholder:'Todo el año'})}
+      ${field('Obras a ejecutar','srf-obras',p.obras,{full:true})}
     </div>`;
   },
-  otros(){
-    const o=F.otros;
-    return `<div class="sl">Otros datos</div>
+
+  energia_otros(){
+    const e=F.energia, o=F.otros;
+    return `<div class="sl">Fuente de energía</div>
     <div class="fg">
-      ${field('¿Con inicio de actividades?','ot-inicio',o.inicioActividades,{type:'radio'})}
-      ${field('¿Proyecto incluye IVA?','ot-iva',o.incluyeIVA,{type:'radio'})}
-      ${field('¿Participa en programa INDAP?','ot-indap',o.participaINDAP,{type:'radio'})}
+      ${field('Tipo disponible','en-disp',e.tipoDisponible,{type:'select',options:['Eléctrica (red)','Diesel / Bencina','No dispone']})}
+      ${field('Tipo proyectada','en-proy',e.tipoProyectada,{type:'select',options:['Eléctrica (red)','Fotovoltaica','Diesel / Bencina','Mixta']})}
+      ${field('Observaciones energía','en-obs',e.observaciones)}
+    </div>
+    <hr class="sep">
+    <div class="sl">Otros antecedentes</div>
+    <div class="fg">
+      ${field('Con inicio de actividades','ot-inicio',o.inicioActividades,{type:'radio'})}
+      ${field('Proyecto incluye IVA','ot-iva',o.incluyeIVA,{type:'radio'})}
+      ${field('Usuario INDAP','ot-indap',o.usuarioIndap,{type:'radio'})}
       ${field('Descripción','ot-desc',o.descripcion,{full:true})}
     </div>`;
   },
-  encuestador(){
-    const e=F.encuestador;
-    return `<div class="sl">Datos encuestador</div>
-    <div class="fg">
-      ${field('Nombre encuestador','en2-nombre',e.nombre,{full:true})}
-      ${field('Cargo','en2-cargo',e.cargo)}
-      ${field('Datos de contacto','en2-contacto',e.datosContacto)}
-      ${field('¿Con consultor?','en2-conconsultor',e.conConsultor,{type:'radio'})}
-      ${field('Nombre consultor','en2-nomconsultor',e.nombreConsultor,{full:true})}
-    </div>`;
-  },
-  firmas(){
-    return `<div class="sl">Firma del encuestador / consultor</div>
+
+  firmas_croquis(){
+    return `<div class="sl">Firma encuestador / consultor</div>
     <div class="sig-box"><canvas id="sigCanvas1"></canvas></div>
     <button class="btn sm" onclick="limpiarFirma(1)">Limpiar</button>
     <hr class="sep">
-    <div class="sl">Firma del beneficiario / agricultor(a)</div>
+    <div class="sl">Firma beneficiario / agricultor(a)</div>
     <div class="sig-box"><canvas id="sigCanvas2"></canvas></div>
-    <button class="btn sm" onclick="limpiarFirma(2)">Limpiar</button>`;
-  },
-  croquis(){
-    return `<div class="sl">Dibujo esquemático</div>
-    <p class="hint">Límites prediales, emplazamiento de obra, accesos, fuente de agua, energía, obras existentes, topografía, caminos/canales que crucen el predio.</p>
-    <div class="sig-box" style="border-style:solid"><canvas id="croquisCanvas"></canvas></div>
+    <button class="btn sm" onclick="limpiarFirma(2)">Limpiar</button>
+    <hr class="sep">
+    <div class="sl">Croquis esquemático</div>
+    <p class="hint">Límites prediales · Emplazamiento obra · Accesos · Fuente de agua · Topografía · Caminos / canales</p>
+    <div class="sig-box" style="border-style:solid"><canvas id="croquisCanvas" style="height:240px"></canvas></div>
     <button class="btn sm" onclick="limpiarCroquis()">Limpiar</button>`;
   },
+
   fotos(){
-    const thumbs = F.fotos.map((p,i)=>`<div class="thumb"><img src="${p.dataUrl}"><button class="rm" onclick="quitarFoto(${i})">✕</button></div>`).join('');
+    const thumbs=F.fotos.map((p,i)=>`<div class="thumb"><img src="${p.dataUrl}"><button class="rm" onclick="quitarFoto(${i})">✕</button></div>`).join('');
     return `<div class="sl">Fotos referenciales</div>
     <input type="file" accept="image/*" capture="environment" id="fotoInput" style="display:none" onchange="agregarFoto(event)">
     <button class="btn pri" onclick="document.getElementById('fotoInput').click()">📷 Tomar foto</button>
     <div class="thumbs">${thumbs}</div>`;
   },
+
   anexos(){
-    const items = F.anexos.map((a,i)=>`
-      <div class="anexo-item">
-        <img src="${a.dataUrl}">
-        <div class="info"><input value="${esc(a.etiqueta)}" onchange="renombrarAnexo(${i},this.value)" placeholder="Nombre del documento (RUT, escritura, etc.)"></div>
-        <button class="btn sm warn" onclick="quitarAnexo(${i})">✕</button>
-      </div>`).join('');
-    return `<div class="sl">Anexos documentales</div>
-    <p class="hint">Escanea RUT, escritura, DAA u otro documento. Se recorta y endereza automáticamente.</p>
+    const items=F.anexos.map((a,i)=>`<div class="anexo-item">
+      <img src="${a.dataUrl}">
+      <div class="info">
+        <div style="font-weight:700;font-size:.8rem;margin-bottom:4px">${esc(a.etiqueta||'Sin nombre')}</div>
+        <input value="${esc(a.etiqueta)}" onchange="renombrarAnexo(${i},this.value)" placeholder="Renombrar…">
+      </div>
+      <button class="btn sm warn" onclick="quitarAnexo(${i})">✕</button>
+    </div>`).join('');
+    return `<div class="sl">Documentos escaneados</div>
+    <p class="hint">Primero ingresa el nombre del documento, luego toma la foto. Se recortará y enderezará automáticamente.</p>
     <input type="file" accept="image/*" capture="environment" id="anexoInput" style="display:none" onchange="iniciarEscaneo(event)">
-    <button class="btn pri" onclick="document.getElementById('anexoInput').click()">📄 Escanear documento</button>
+    <button class="btn pri" onclick="pedirNombreYEscanear()">📄 Escanear documento</button>
     ${items}`;
   },
+
   exportar(){
     return `<div class="sl">Guardar / Exportar</div>
-    <button class="btn pri full" style="width:100%;margin-bottom:8px" onclick="guardarFicha().then(()=>toast('Guardado'))">💾 Guardar ficha</button>
+    <button class="btn pri" style="width:100%;margin-bottom:10px" onclick="guardarFicha().then(()=>toast('Guardado ✓'))">💾 Guardar ficha</button>
     <hr class="sep">
     <button class="btn" style="width:100%;margin-bottom:8px" onclick="exportarPDF()">📄 Generar ficha PDF</button>
     <button class="btn" style="width:100%;margin-bottom:8px" onclick="exportarJSONCompleto()">⬇ Exportar ficha completa (.json)</button>
-    <button class="btn" style="width:100%;margin-bottom:8px" onclick="exportarJSONDisenador()">⬇ Exportar para Diseñador de Riego (.json)</button>
-    <p class="hint">El export "para Diseñador" solo incluye los campos de identificación/sitio — no reemplaza el diseño hidráulico.</p>`;
+    <button class="btn" style="width:100%;margin-bottom:8px" onclick="exportarJSONDisenador()">⬇ Exportar para Diseñador de Riego (.json)</button>`;
   }
 };
 
-// ---------- Guardar valores del paso actual al modelo F ----------
+// ---------- Guardar valores del paso actual ----------
 function guardarPasoActual(){
-  const s = STEPS[curStep].id;
+  const s=STEPS[curStep].id;
   if(s==='contacto'){
     const c=F.contacto;
-    c.nombre=val('ct-nombre'); c.rut=val('ct-rut'); c.telefono=val('ct-tel');
-    c.region=val('ct-region'); c.comuna=val('ct-comuna'); c.sector=val('ct-sector');
-  } else if(s==='proyecto'){
+    c.nombre=val('ct-nombre');c.rut=val('ct-rut');c.telefono=val('ct-tel');
+    c.region=val('ct-region');c.comuna=val('ct-comuna');c.sector=val('ct-sector');
+  }else if(s==='proyecto'){
     const p=F.proyecto;
-    p.nombreProyecto=val('pr-nombre'); p.consultor=val('pr-consultor'); p.rolAvaluo=val('pr-rol');
-    p.sistemaRiego=val('pr-sistema'); p.supTotalHa=val('pr-suptot'); p.supRegarHa=val('pr-supregar');
-    p.coordNorte=val('pr-utmn'); p.coordEste=val('pr-utme'); p.huso=val('pr-huso');
-  } else if(s==='fuente'){
+    p.nombreProyecto=val('pr-nombre');p.consultor=val('pr-consultor');p.rolAvaluo=val('pr-rol');
+    p.supTotalHa=val('pr-suptot');p.supRegarHa=val('pr-supregar');
+    p.sistemas=Object.keys(SISTEMA_MAP).filter(v=>val('pr-sys-'+v));
+    p.coordNorte=val('pr-utmn');p.coordEste=val('pr-utme');p.huso=val('pr-huso');
+  }else if(s==='fuente'){
     const f=F.fuente;
-    f.tipo=val('fu-tipo'); f.coordNorte=val('fu-utmn'); f.coordEste=val('fu-utme'); f.huso=val('fu-huso');
-    f.caracteristicas=val('fu-caract'); f.observaciones=val('fu-obs'); f.caudalLs=val('fu-caudal'); f.horasRiegoDia=val('fu-horas');
-  } else if(s==='tenencia'){
+    f.tipo=val('fu-tipo');f.caracteristicas=val('fu-caract');f.observaciones=val('fu-obs');
+    f.caudalLs=val('fu-caudal');f.horasRiegoDia=val('fu-horas');
+    f.coordNorte=val('fu-utmn');f.coordEste=val('fu-utme');f.huso=val('fu-huso');
+  }else if(s==='tenencia'){
     const t=F.tenencia;
-    t.tipoTierra=val('te-tierra'); t.docTierra=radioVal('te-doctierra'); t.tipoDerecho=val('te-derecho'); t.docAgua=radioVal('te-docagua');
-  } else if(s==='corrob'){
-    const a=F.corrobActual, p=F.corrobProyecto;
-    a.cultivo=val('ca-cult'); a.cultivoOtro=val('ca-cultotro'); a.superficieM2=val('ca-sup'); a.metodo=val('ca-met'); a.meses=val('ca-meses'); a.obras=val('ca-obras');
-    p.cultivo=val('cp-cult'); p.cultivoOtro=val('cp-cultotro'); p.superficieM2=val('cp-sup'); p.metodo=val('cp-met'); p.meses=val('cp-meses'); p.obras=val('cp-obras');
-  } else if(s==='energia'){
-    const e=F.energia; e.tipoDisponible=val('en-disp'); e.tipoProyectada=val('en-proy'); e.observaciones=val('en-obs');
-  } else if(s==='otros'){
-    const o=F.otros; o.inicioActividades=radioVal('ot-inicio'); o.incluyeIVA=radioVal('ot-iva'); o.participaINDAP=radioVal('ot-indap'); o.descripcion=val('ot-desc');
-  } else if(s==='encuestador'){
-    const e=F.encuestador; e.nombre=val('en2-nombre'); e.cargo=val('en2-cargo'); e.datosContacto=val('en2-contacto');
-    e.conConsultor=radioVal('en2-conconsultor'); e.nombreConsultor=val('en2-nomconsultor');
+    t.tipoTierra=val('te-tierra');t.docTierra=radioVal('te-doctierra');
+    t.tipoDerecho=val('te-derecho');t.docAgua=radioVal('te-docagua');
+  }else if(s==='superficie'){
+    const a=F.sra,p=F.srf;
+    a.cultivo=val('sra-cult');a.cultivoOtro=val('sra-cultotro');a.superficieM2=val('sra-sup');
+    a.metodo=val('sra-met');a.meses=val('sra-meses');a.obras=val('sra-obras');
+    p.cultivo=val('srf-cult');p.cultivoOtro=val('srf-cultotro');p.superficieM2=val('srf-sup');
+    p.metodo=val('srf-met');p.meses=val('srf-meses');p.obras=val('srf-obras');
+  }else if(s==='energia_otros'){
+    const e=F.energia;e.tipoDisponible=val('en-disp');e.tipoProyectada=val('en-proy');e.observaciones=val('en-obs');
+    const o=F.otros;o.inicioActividades=radioVal('ot-inicio');o.incluyeIVA=radioVal('ot-iva');o.usuarioIndap=radioVal('ot-indap');o.descripcion=val('ot-desc');
   }
+  F.modificado=Date.now();
 }
 
-// ---------- GPS ----------
+// ---------- GPS + UTM ----------
 function capturarGPS(prefix){
-  if(!navigator.geolocation){ toast('GPS no disponible'); return; }
+  if(!navigator.geolocation){toast('GPS no disponible');return;}
   toast('Obteniendo ubicación…');
   navigator.geolocation.getCurrentPosition(pos=>{
-    const {latitude, longitude} = pos.coords;
-    const utm = toUTM(latitude, longitude);
-    document.getElementById(prefix+'-utmn').value = utm.n;
-    document.getElementById(prefix+'-utme').value = utm.e;
-    document.getElementById(prefix+'-huso').value = utm.zone;
-    toast('Coordenadas capturadas');
-  }, err=>{ toast('No se pudo obtener GPS: '+err.message); }, {enableHighAccuracy:true, timeout:15000});
+    const utm=toUTM(pos.coords.latitude,pos.coords.longitude);
+    document.getElementById(prefix+'-utmn').value=utm.n;
+    document.getElementById(prefix+'-utme').value=utm.e;
+    document.getElementById(prefix+'-huso').value=utm.zone;
+    toast('Coordenadas capturadas ✓');
+  },err=>toast('GPS: '+err.message),{enableHighAccuracy:true,timeout:15000});
 }
-// Conversión lat/lon (WGS84) -> UTM, sin librerías externas
-function toUTM(lat, lon){
-  const a=6378137.0, e=0.081819191;
-  const k0=0.9996;
-  const zone = Math.floor((lon+180)/6)+1;
-  const lonOrigin = (zone-1)*6-180+3;
-  const latR = lat*Math.PI/180, lonR = lon*Math.PI/180, lonOrigR = lonOrigin*Math.PI/180;
-  const eSq = e*e, ePrimeSq = eSq/(1-eSq);
-  const N = a/Math.sqrt(1-eSq*Math.sin(latR)*Math.sin(latR));
-  const T = Math.tan(latR)*Math.tan(latR);
-  const C = ePrimeSq*Math.cos(latR)*Math.cos(latR);
-  const A = Math.cos(latR)*(lonR-lonOrigR);
-  const M = a*((1-eSq/4-3*eSq*eSq/64-5*eSq*eSq*eSq/256)*latR
-    -(3*eSq/8+3*eSq*eSq/32+45*eSq*eSq*eSq/1024)*Math.sin(2*latR)
-    +(15*eSq*eSq/256+45*eSq*eSq*eSq/1024)*Math.sin(4*latR)
-    -(35*eSq*eSq*eSq/3072)*Math.sin(6*latR));
-  let easting = k0*N*(A+(1-T+C)*A*A*A/6+(5-18*T+T*T+72*C-58*ePrimeSq)*A*A*A*A*A/120)+500000;
-  let northing = k0*(M+N*Math.tan(latR)*(A*A/2+(5-T+9*C+4*C*C)*A*A*A*A/24+(61-58*T+T*T+600*C-330*ePrimeSq)*A*A*A*A*A*A/720));
-  if(lat<0) northing += 10000000;
-  return { n: Math.round(northing), e: Math.round(easting), zone };
+function toUTM(lat,lon){
+  const a=6378137,e=0.081819191,k0=0.9996;
+  const zone=Math.floor((lon+180)/6)+1;
+  const lonOrig=((zone-1)*6-180+3)*Math.PI/180;
+  const latR=lat*Math.PI/180,lonR=lon*Math.PI/180;
+  const eSq=e*e,ePSq=eSq/(1-eSq);
+  const N=a/Math.sqrt(1-eSq*Math.sin(latR)**2);
+  const T=Math.tan(latR)**2,C=ePSq*Math.cos(latR)**2,A=Math.cos(latR)*(lonR-lonOrig);
+  const M=a*((1-eSq/4-3*eSq**2/64-5*eSq**3/256)*latR-(3*eSq/8+3*eSq**2/32+45*eSq**3/1024)*Math.sin(2*latR)+(15*eSq**2/256+45*eSq**3/1024)*Math.sin(4*latR)-(35*eSq**3/3072)*Math.sin(6*latR));
+  let easting=k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T**2+72*C-58*ePSq)*A**5/120)+500000;
+  let northing=k0*(M+N*Math.tan(latR)*(A**2/2+(5-T+9*C+4*C**2)*A**4/24+(61-58*T+T**2+600*C-330*ePSq)*A**6/720));
+  if(lat<0)northing+=10000000;
+  return{n:Math.round(northing),e:Math.round(easting),zone};
 }
 
-// ---------- Firmas / Croquis (canvas táctil) ----------
-function setupCanvasPad(canvasId, initialDataUrl, onEnd){
-  const c = document.getElementById(canvasId);
-  const dpr = window.devicePixelRatio||1;
-  const rect = c.getBoundingClientRect();
-  c.width = rect.width*dpr; c.height = 160*dpr;
-  const ctx = c.getContext('2d');
-  ctx.scale(dpr,dpr); ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.strokeStyle='#0b2545';
-  if(initialDataUrl){ const img=new Image(); img.onload=()=>ctx.drawImage(img,0,0,rect.width,160); img.src=initialDataUrl; }
-  let drawing=false, last=null;
-  function pos(e){ const r=c.getBoundingClientRect(); const p=e.touches?e.touches[0]:e; return {x:p.clientX-r.left,y:p.clientY-r.top}; }
-  function start(e){ drawing=true; last=pos(e); e.preventDefault(); }
-  function move(e){ if(!drawing) return; const p=pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; e.preventDefault(); }
-  function end(){ if(drawing && onEnd) onEnd(c.toDataURL('image/png')); drawing=false; }
-  c.addEventListener('mousedown',start); c.addEventListener('mousemove',move); window.addEventListener('mouseup',end);
-  c.addEventListener('touchstart',start,{passive:false}); c.addEventListener('touchmove',move,{passive:false}); c.addEventListener('touchend',end);
-  c._ctx=ctx; c._rect=rect;
-  return c;
+// ---------- Firmas / Croquis ----------
+function setupCanvasPad(id,initial,onEnd){
+  const c=document.getElementById(id);if(!c)return;
+  const dpr=window.devicePixelRatio||1,rect=c.getBoundingClientRect();
+  c.width=rect.width*dpr;c.height=parseInt(c.style.height||'160')*dpr;
+  const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.lineWidth=2.2;ctx.lineCap='round';ctx.strokeStyle='#0b2545';
+  if(initial){const img=new Image();img.onload=()=>ctx.drawImage(img,0,0,rect.width,parseInt(c.style.height||'160'));img.src=initial;}
+  let drawing=false,last=null;
+  function pos(e){const r=c.getBoundingClientRect();const p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top};}
+  function start(e){drawing=true;last=pos(e);e.preventDefault();}
+  function move(e){if(!drawing)return;const p=pos(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;e.preventDefault();}
+  function end(){if(drawing&&onEnd)onEnd(c.toDataURL('image/png'));drawing=false;}
+  c.addEventListener('mousedown',start);c.addEventListener('mousemove',move);window.addEventListener('mouseup',end);
+  c.addEventListener('touchstart',start,{passive:false});c.addEventListener('touchmove',move,{passive:false});c.addEventListener('touchend',end);
+  c._ctx=ctx;c._h=parseInt(c.style.height||'160');
 }
-function initFirmas(){
-  setupCanvasPad('sigCanvas1', F.firmaEncuestador, d=>F.firmaEncuestador=d);
-  setupCanvasPad('sigCanvas2', F.firmaBeneficiario, d=>F.firmaBeneficiario=d);
-}
-function limpiarFirma(n){
-  const id = n===1?'sigCanvas1':'sigCanvas2';
-  const c=document.getElementById(id); const ctx=c._ctx; ctx.clearRect(0,0,c.width,c.height);
-  if(n===1) F.firmaEncuestador=''; else F.firmaBeneficiario='';
-}
-function initCroquis(){ setupCanvasPad('croquisCanvas', F.dibujoEsquematico, d=>F.dibujoEsquematico=d); document.getElementById('croquisCanvas').style.height='260px'; }
-function limpiarCroquis(){ const c=document.getElementById('croquisCanvas'); const ctx=c._ctx; ctx.clearRect(0,0,c.width,c.height); F.dibujoEsquematico=''; }
+function initFirmas(){setupCanvasPad('sigCanvas1',F.firmaEncuestador,d=>F.firmaEncuestador=d);setupCanvasPad('sigCanvas2',F.firmaBeneficiario,d=>F.firmaBeneficiario=d);}
+function limpiarFirma(n){const id=n===1?'sigCanvas1':'sigCanvas2';const c=document.getElementById(id);c._ctx.clearRect(0,0,c.width,c.height);if(n===1)F.firmaEncuestador='';else F.firmaBeneficiario='';}
+function initCroquis(){setupCanvasPad('croquisCanvas',F.dibujoEsquematico,d=>F.dibujoEsquematico=d);}
+function limpiarCroquis(){const c=document.getElementById('croquisCanvas');c._ctx.clearRect(0,0,c.width,c.height);F.dibujoEsquematico='';}
 
-// ---------- Fotos referenciales ----------
-function fileToDataUrl(file, maxDim=1600, quality=0.82){
-  return new Promise((res)=>{
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = e=>{ img.onload=()=>{
-      let w=img.width, h=img.height;
-      if(w>h && w>maxDim){ h=h*maxDim/w; w=maxDim; } else if(h>maxDim){ w=w*maxDim/h; h=maxDim; }
-      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
-      cv.getContext('2d').drawImage(img,0,0,w,h);
-      res(cv.toDataURL('image/jpeg', quality));
-    }; img.src=e.target.result; };
-    reader.readAsDataURL(file);
-  });
+// ---------- Fotos ----------
+function fileToDataUrl(file,maxDim=1600,q=0.82){
+  return new Promise(res=>{const img=new Image();const r=new FileReader();r.onload=e=>{img.onload=()=>{let w=img.width,h=img.height;if(w>h&&w>maxDim){h=h*maxDim/w;w=maxDim;}else if(h>maxDim){w=w*maxDim/h;h=maxDim;}const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);res(cv.toDataURL('image/jpeg',q));};img.src=e.target.result;};r.readAsDataURL(file);});
 }
 async function agregarFoto(ev){
-  const file = ev.target.files[0]; if(!file) return;
-  const dataUrl = await fileToDataUrl(file, 1600, 0.82);
-  F.fotos.push({id:uuid(), dataUrl});
-  ev.target.value='';
-  renderStep();
+  const file=ev.target.files[0];if(!file)return;
+  const dataUrl=await fileToDataUrl(file);F.fotos.push({id:uuid(),dataUrl});ev.target.value='';renderStep();
 }
-function quitarFoto(i){ F.fotos.splice(i,1); renderStep(); }
+function quitarFoto(i){F.fotos.splice(i,1);renderStep();}
 
-// ---------- Anexos: escaneo con recorte/enderezado (homografía) ----------
-let _cropImg=null, _cropPts=null, _cropCanvasEl=null;
+// ---------- Escaneo de documentos ----------
+let _cropImg=null,_cropPts=null,_cropCanvasEl=null,_pendingAnexoName='';
+
+function pedirNombreYEscanear(){
+  const nombre=prompt('Nombre del documento a escanear:\n(ej: RUT, Escritura, DAA, Certificado)','');
+  if(nombre===null)return;
+  _pendingAnexoName=nombre.trim()||'Documento';
+  document.getElementById('anexoInput').click();
+}
 function iniciarEscaneo(ev){
-  const file = ev.target.files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = e=>{
-    const img = new Image();
-    img.onload=()=>{ _cropImg=img; abrirModalCrop(img); };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
-  ev.target.value='';
+  const file=ev.target.files[0];if(!file)return;
+  const r=new FileReader();r.onload=e=>{const img=new Image();img.onload=()=>{_cropImg=img;abrirModalCrop(img);};img.src=e.target.result;};r.readAsDataURL(file);ev.target.value='';
 }
 function abrirModalCrop(img){
   document.getElementById('cropModal').style.display='flex';
-  const wrap = document.getElementById('cropWrap');
-  const maxW = Math.min(window.innerWidth-60, 560);
-  const scale = Math.min(maxW/img.width, 1);
-  const w = img.width*scale, h = img.height*scale;
-  const cv = document.getElementById('cropCanvas');
-  cv.width=w; cv.height=h;
-  const ctx = cv.getContext('2d');
-  ctx.drawImage(img,0,0,w,h);
-  _cropCanvasEl = cv;
-  // puntos iniciales: margen del 6% respecto al borde (guía; el usuario ajusta)
+  const maxW=Math.min(window.innerWidth-60,560);
+  const scale=Math.min(maxW/img.width,1);
+  const w=img.width*scale,h=img.height*scale;
+  const cv=document.getElementById('cropCanvas');cv.width=w;cv.height=h;
+  cv.getContext('2d').drawImage(img,0,0,w,h);
+  _cropCanvasEl=cv;
   const m=0.06;
-  _cropPts = [
-    {x:w*m, y:h*m}, {x:w*(1-m), y:h*m}, {x:w*(1-m), y:h*(1-m)}, {x:w*m, y:h*(1-m)}
-  ];
+  _cropPts=[{x:w*m,y:h*m},{x:w*(1-m),y:h*m},{x:w*(1-m),y:h*(1-m)},{x:w*m,y:h*(1-m)}];
   drawHandles();
 }
 function drawHandles(){
   document.querySelectorAll('.handle').forEach(h=>h.remove());
-  const wrap = document.getElementById('cropWrap');
-  const cv = _cropCanvasEl;
-  _cropPts.forEach((p,i)=>{
-    const h = document.createElement('div'); h.className='handle';
-    h.style.left = p.x+'px'; h.style.top = p.y+'px';
+  const wrap=document.getElementById('cropWrap');const cv=_cropCanvasEl;
+  _cropPts.forEach((p)=>{
+    const h=document.createElement('div');h.className='handle';h.style.left=p.x+'px';h.style.top=p.y+'px';
     let dragging=false;
-    function move(e){ if(!dragging) return; const r=cv.getBoundingClientRect(); const pt=e.touches?e.touches[0]:e;
-      p.x = Math.max(0,Math.min(cv.width, pt.clientX-r.left)); p.y = Math.max(0,Math.min(cv.height, pt.clientY-r.top));
-      h.style.left=p.x+'px'; h.style.top=p.y+'px'; redrawCropOutline(); e.preventDefault(); }
-    h.addEventListener('mousedown',()=>dragging=true); window.addEventListener('mousemove',move); window.addEventListener('mouseup',()=>dragging=false);
-    h.addEventListener('touchstart',e=>{dragging=true;e.preventDefault();},{passive:false});
-    h.addEventListener('touchmove',move,{passive:false}); h.addEventListener('touchend',()=>dragging=false);
+    function move(e){if(!dragging)return;const r=cv.getBoundingClientRect();const pt=e.touches?e.touches[0]:e;p.x=Math.max(0,Math.min(cv.width,pt.clientX-r.left));p.y=Math.max(0,Math.min(cv.height,pt.clientY-r.top));h.style.left=p.x+'px';h.style.top=p.y+'px';redrawOutline();e.preventDefault();}
+    h.addEventListener('mousedown',()=>dragging=true);window.addEventListener('mousemove',move);window.addEventListener('mouseup',()=>dragging=false);
+    h.addEventListener('touchstart',e=>{dragging=true;e.preventDefault();},{passive:false});h.addEventListener('touchmove',move,{passive:false});h.addEventListener('touchend',()=>dragging=false);
     wrap.appendChild(h);
-  });
-  redrawCropOutline();
+  });redrawOutline();
 }
-function redrawCropOutline(){
-  const cv=_cropCanvasEl, ctx=cv.getContext('2d');
-  ctx.drawImage(_cropImg,0,0,cv.width,cv.height);
-  ctx.strokeStyle='#2f7dc4'; ctx.lineWidth=2; ctx.beginPath();
-  _cropPts.forEach((p,i)=> i===0? ctx.moveTo(p.x,p.y): ctx.lineTo(p.x,p.y));
-  ctx.closePath(); ctx.stroke();
-}
-function cancelCrop(){ document.getElementById('cropModal').style.display='none'; }
+function redrawOutline(){const cv=_cropCanvasEl,ctx=cv.getContext('2d');ctx.drawImage(_cropImg,0,0,cv.width,cv.height);ctx.strokeStyle='#2f7dc4';ctx.lineWidth=2;ctx.beginPath();_cropPts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));ctx.closePath();ctx.stroke();}
+function cancelCrop(){document.getElementById('cropModal').style.display='none';}
 
-// Homografía: resuelve la matriz 3x3 que mapea src(4 pts) -> dst(4 pts)
-function computeHomography(src, dst){
-  const A=[];
-  for(let i=0;i<4;i++){
-    const {x:sx,y:sy}=src[i], {x:dx,y:dy}=dst[i];
-    A.push([sx,sy,1,0,0,0,-dx*sx,-dx*sy]); A.push([0,0,0,sx,sy,1,-dy*sx,-dy*sy]);
-  }
-  const b = []; dst.forEach(p=>{ b.push(p.x); b.push(p.y); });
-  const h = solveLinear(A,b); // 8 incógnitas
-  return [h[0],h[1],h[2], h[3],h[4],h[5], h[6],h[7],1];
-}
-function solveLinear(A,b){
-  const n=A.length;
-  const M = A.map((row,i)=>row.concat([b[i]]));
-  for(let i=0;i<n;i++){
-    let maxRow=i; for(let k=i+1;k<n;k++) if(Math.abs(M[k][i])>Math.abs(M[maxRow][i])) maxRow=k;
-    [M[i],M[maxRow]]=[M[maxRow],M[i]];
-    for(let k=i+1;k<n;k++){ const f=M[k][i]/M[i][i]; for(let j=i;j<=n;j++) M[k][j]-=f*M[i][j]; }
-  }
-  const x=new Array(n).fill(0);
-  for(let i=n-1;i>=0;i--){ let s=M[i][n]; for(let j=i+1;j<n;j++) s-=M[i][j]*x[j]; x[i]=s/M[i][i]; }
-  return x;
-}
+function solveLinear(A,b){const n=A.length;const M=A.map((row,i)=>row.concat([b[i]]));for(let i=0;i<n;i++){let mr=i;for(let k=i+1;k<n;k++)if(Math.abs(M[k][i])>Math.abs(M[mr][i]))mr=k;[M[i],M[mr]]=[M[mr],M[i]];for(let k=i+1;k<n;k++){const f=M[k][i]/M[i][i];for(let j=i;j<=n;j++)M[k][j]-=f*M[i][j];}}const x=new Array(n).fill(0);for(let i=n-1;i>=0;i--){let s=M[i][n];for(let j=i+1;j<n;j++)s-=M[i][j]*x[j];x[i]=s/M[i][i];}return x;}
+function computeH(src,dst){const A=[];for(let i=0;i<4;i++){const{x:sx,y:sy}=src[i],{x:dx,y:dy}=dst[i];A.push([sx,sy,1,0,0,0,-dx*sx,-dx*sy]);A.push([0,0,0,sx,sy,1,-dy*sx,-dy*sy]);}const b=[];dst.forEach(p=>{b.push(p.x);b.push(p.y);});const h=solveLinear(A,b);return[h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1];}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+
 function applyCrop(){
-  // dimensiones de salida en base a distancias promedio (aspecto tipo hoja)
-  const p = _cropPts;
-  const wTop=dist(p[0],p[1]), wBot=dist(p[3],p[2]), hL=dist(p[0],p[3]), hR=dist(p[1],p[2]);
-  const outW = Math.round(Math.max(wTop,wBot)); const outH = Math.round(Math.max(hL,hR));
-  const scaleX = _cropImg.width / _cropCanvasEl.width, scaleY = _cropImg.height / _cropCanvasEl.height;
-  const srcPts = p.map(pt=>({x:pt.x*scaleX, y:pt.y*scaleY}));
-  const dstPts = [{x:0,y:0},{x:outW,y:0},{x:outW,y:outH},{x:0,y:outH}];
-  const H = computeHomography(dstPts, srcPts); // dst->src (para muestreo inverso)
-
-  const srcCanvas = document.createElement('canvas'); srcCanvas.width=_cropImg.width; srcCanvas.height=_cropImg.height;
-  srcCanvas.getContext('2d').drawImage(_cropImg,0,0);
-  const srcData = srcCanvas.getContext('2d').getImageData(0,0,srcCanvas.width,srcCanvas.height).data;
-  const sw=srcCanvas.width, sh=srcCanvas.height;
-
-  const outCanvas = document.createElement('canvas'); outCanvas.width=outW; outCanvas.height=outH;
-  const outCtx = outCanvas.getContext('2d');
-  const outImgData = outCtx.createImageData(outW,outH);
-  for(let y=0;y<outH;y++){
-    for(let x=0;x<outW;x++){
-      const denom = H[6]*x+H[7]*y+H[8];
-      const sx = (H[0]*x+H[1]*y+H[2])/denom;
-      const sy = (H[3]*x+H[4]*y+H[5])/denom;
-      const idxOut = (y*outW+x)*4;
-      if(sx>=0 && sx<sw-1 && sy>=0 && sy<sh-1){
-        const x0=Math.floor(sx), y0=Math.floor(sy), fx=sx-x0, fy=sy-y0;
-        for(let c=0;c<3;c++){
-          const p00=srcData[(y0*sw+x0)*4+c], p10=srcData[(y0*sw+x0+1)*4+c];
-          const p01=srcData[((y0+1)*sw+x0)*4+c], p11=srcData[((y0+1)*sw+x0+1)*4+c];
-          const top=p00+(p10-p00)*fx, bot=p01+(p11-p01)*fx;
-          outImgData.data[idxOut+c] = top+(bot-top)*fy;
-        }
-        outImgData.data[idxOut+3]=255;
-      } else { outImgData.data[idxOut]=255; outImgData.data[idxOut+1]=255; outImgData.data[idxOut+2]=255; outImgData.data[idxOut+3]=255; }
-    }
-  }
-  outCtx.putImageData(outImgData,0,0);
-  const dataUrl = outCanvas.toDataURL('image/jpeg', 0.86);
-  F.anexos.push({id:uuid(), etiqueta:'', dataUrl});
+  const p=_cropPts;
+  const outW=Math.round(Math.max(dist(p[0],p[1]),dist(p[3],p[2])));
+  const outH=Math.round(Math.max(dist(p[0],p[3]),dist(p[1],p[2])));
+  const sx=_cropImg.width/_cropCanvasEl.width,sy=_cropImg.height/_cropCanvasEl.height;
+  const srcPts=p.map(pt=>({x:pt.x*sx,y:pt.y*sy}));
+  const dstPts=[{x:0,y:0},{x:outW,y:0},{x:outW,y:outH},{x:0,y:outH}];
+  const H=computeH(dstPts,srcPts);
+  const sc=document.createElement('canvas');sc.width=_cropImg.width;sc.height=_cropImg.height;sc.getContext('2d').drawImage(_cropImg,0,0);
+  const sd=sc.getContext('2d').getImageData(0,0,sc.width,sc.height).data,sw=sc.width,sh=sc.height;
+  const oc=document.createElement('canvas');oc.width=outW;oc.height=outH;
+  const octx=oc.getContext('2d'),od=octx.createImageData(outW,outH);
+  for(let y=0;y<outH;y++){for(let x=0;x<outW;x++){const den=H[6]*x+H[7]*y+H[8];const sx2=(H[0]*x+H[1]*y+H[2])/den,sy2=(H[3]*x+H[4]*y+H[5])/den;const io=(y*outW+x)*4;if(sx2>=0&&sx2<sw-1&&sy2>=0&&sy2<sh-1){const x0=Math.floor(sx2),y0=Math.floor(sy2),fx=sx2-x0,fy=sy2-y0;for(let c=0;c<3;c++){const p00=sd[(y0*sw+x0)*4+c],p10=sd[(y0*sw+x0+1)*4+c],p01=sd[((y0+1)*sw+x0)*4+c],p11=sd[((y0+1)*sw+x0+1)*4+c];od.data[io+c]=p00+(p10-p00)*fx+(p01-p00)*fy+(p11-p10-p01+p00)*fx*fy;}od.data[io+3]=255;}else{od.data[io]=od.data[io+1]=od.data[io+2]=255;od.data[io+3]=255;}}}
+  octx.putImageData(od,0,0);
+  const dataUrl=oc.toDataURL('image/jpeg',0.86);
+  F.anexos.push({id:uuid(),etiqueta:_pendingAnexoName,dataUrl});
   document.getElementById('cropModal').style.display='none';
   renderStep();
 }
-function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
-function renombrarAnexo(i,v){ F.anexos[i].etiqueta=v; }
-function quitarAnexo(i){ F.anexos.splice(i,1); renderStep(); }
+function renombrarAnexo(i,v){F.anexos[i].etiqueta=v;}
+function quitarAnexo(i){F.anexos.splice(i,1);renderStep();}
 
-// ---------- Exportar JSON completo ----------
-function nombreArchivoBase(){
-  const n = (F.contacto.nombre||'ficha').trim().replace(/\s+/g,'_').replace(/[^\w-]/g,'');
-  return (n||'ficha')+'_'+F.fecha;
-}
-function descargarArchivo(nombre, contenido, mime){
-  const blob = new Blob([contenido], {type:mime});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href=url; a.download=nombre; document.body.appendChild(a); a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1500);
-}
-function exportarJSONCompleto(){
-  guardarPasoActual();
-  descargarArchivo(nombreArchivoBase()+'.json', JSON.stringify(F,null,2), 'application/json');
-  toast('Ficha completa exportada');
-}
+// ---------- JSON exports ----------
+function nombreBase(){return ((F.contacto.nombre||'ficha').trim().replace(/\s+/g,'_').replace(/[^\w-]/g,'')||'ficha')+'_'+F.fecha;}
+function descargar(nombre,contenido,mime){const blob=new Blob([contenido],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=nombre;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},1500);}
+function exportarJSONCompleto(){guardarPasoActual();descargar(nombreBase()+'.json',JSON.stringify(F,null,2),'application/json');toast('JSON completo exportado');}
 
-// ---------- Exportar JSON compatible con Diseñador de Riego ----------
 function exportarJSONDisenador(){
   guardarPasoActual();
-  const sys = F.proyecto.sistemaRiego;
-  if(!sys){ toast('Selecciona el sistema de riego en el paso "Proyecto"'); return; }
-  const pfx = PFX[sys];
-  const fields = {};
-  const p=F.proyecto, c=F.contacto, fu=F.fuente, te=F.tenencia, cp=F.corrobProyecto;
-  fields[pfx+'-consultor'] = p.consultor||'';
-  fields[pfx+'-nombre-proy'] = p.nombreProyecto||'';
-  fields[pfx+'-prop'] = c.nombre||'';
-  fields[pfx+'-rol'] = p.rolAvaluo||'';
-  fields[pfx+'-sec'] = c.sector||'';
-  fields[pfx+'-com'] = c.comuna||'';
-  fields[pfx+'-huso'] = p.huso||'';
-  fields[pfx+'-utmn'] = p.coordNorte||'';
-  fields[pfx+'-utme'] = p.coordEste||'';
-  const supRegarId = DR_SUP_REGAR[sys]; if(supRegarId) fields[supRegarId] = p.supRegarHa||'';
-  if(sys==='asp' && p.supTotalHa) fields['a-sttot'] = p.supTotalHa;
-  const cultivoFinal = cp.cultivo==='Otro'? cp.cultivoOtro : cp.cultivo;
-  fields[pfx+'-cult'] = cultivoFinal||'';
-  fields[pfx+'-tfue'] = fu.tipo||'';
-  fields[pfx+'-der-tipo'] = te.tipoDerecho||'';
-  fields[pfx+'-q'] = fu.caudalLs||'';
-  fields[pfx+'-hrs'] = fu.horasRiegoDia||'';
-
-  const out = { __sys: sys, __name: (p.nombreProyecto||c.nombre||'Proyecto'), __date: new Date().toLocaleString('es-CL'), fields,
-    __origen: 'ficha-terreno', __nota: 'Solo campos de identificación/sitio. Verificar catálogo de Cultivo/Fuente en Diseñador si no coinciden.' };
-  descargarArchivo(nombreArchivoBase()+'_paraDisenador.json', JSON.stringify(out,null,2), 'application/json');
-  toast('JSON para Diseñador exportado');
+  const sistemas=F.proyecto.sistemas||[];
+  if(!sistemas.length){toast('Selecciona al menos un sistema de riego en "Proyecto"');return;}
+  sistemas.forEach(sys=>{
+    const pfx=PFX[sys];const p=F.proyecto,c=F.contacto,fu=F.fuente,te=F.tenencia,cp=F.srf;
+    const cultivoFinal=cp.cultivo==='Otro'?cp.cultivoOtro:cp.cultivo;
+    const fields={};
+    fields[pfx+'-consultor']=p.consultor||'';
+    fields[pfx+'-nombre-proy']=p.nombreProyecto||'';
+    fields[pfx+'-prop']=c.nombre||'';
+    fields[pfx+'-rol']=p.rolAvaluo||'';
+    fields[pfx+'-sec']=c.sector||'';
+    fields[pfx+'-com']=c.comuna||'';
+    fields[pfx+'-huso']=p.huso||'';
+    fields[pfx+'-utmn']=p.coordNorte||'';
+    fields[pfx+'-utme']=p.coordEste||'';
+    const supId=DR_SUP_REGAR[sys];if(supId)fields[supId]=p.supRegarHa||'';
+    if(sys==='asp'&&p.supTotalHa)fields['a-sttot']=p.supTotalHa;
+    fields[pfx+'-cult']=cultivoFinal||'';
+    fields[pfx+'-tfue']=fu.tipo||'';
+    fields[pfx+'-der-tipo']=te.tipoDerecho||'';
+    fields[pfx+'-q']=fu.caudalLs||'';
+    fields[pfx+'-hrs']=fu.horasRiegoDia||'';
+    const out={__sys:sys,__name:p.nombreProyecto||c.nombre||'Proyecto',__date:new Date().toLocaleString('es-CL'),fields};
+    descargar(nombreBase()+'_'+SISTEMA_MAP[sys]+'.json',JSON.stringify(out,null,2),'application/json');
+  });
+  toast(`${sistemas.length} archivo(s) exportados`);
 }
 
-// ---------- PDF (impresión) — layout estilo ficha FileMaker ----------
+// ---------- PDF ----------
 function exportarPDF(){
   guardarPasoActual();
-  const F_=F;
-  const c=F_.contacto, p=F_.proyecto, fu=F_.fuente, te=F_.tenencia;
-  const ca=F_.corrobActual, cp=F_.corrobProyecto, en=F_.energia, ot=F_.otros, es=F_.encuestador;
-  const cult=v=> v&&v.cultivo==='Otro'? v.cultivoOtro:(v?v.cultivo:'');
-
-  // estilos base
+  const F_=F,c=F_.contacto,p=F_.proyecto,fu=F_.fuente,te=F_.tenencia;
+  const a=F_.sra,sf=F_.srf,en=F_.energia,ot=F_.otros;
+  const cult=v=>v&&v.cultivo==='Otro'?v.cultivoOtro:(v?v.cultivo:'');
   const S={
-    page:`font-family:Arial,Helvetica,sans-serif;font-size:10.5px;color:#111;max-width:720px;margin:0 auto`,
-    hdr:`text-align:center;margin:0 0 4px`,
-    sec:`background:#1e3a5f;color:#fff;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:5px 8px;margin-top:10px`,
-    tbl:`width:100%;border-collapse:collapse;margin:0`,
-    lbl:`background:#edf3f9;font-weight:700;padding:5px 8px;border:1px solid #b8c9db;width:38%;vertical-align:top`,
-    val:`background:#fff;padding:5px 8px;border:1px solid #b8c9db;vertical-align:top`,
-    thd:`background:#2f5c8e;color:#fff;font-weight:700;padding:5px 8px;border:1px solid #1e3a5f;text-align:center`,
-    tdc:`background:#edf3f9;font-weight:600;padding:5px 8px;border:1px solid #b8c9db`,
-    tda:`background:#fff;padding:5px 8px;border:1px solid #b8c9db;text-align:center`
+    lbl:'background:#edf3f9;font-weight:700;padding:5px 8px;border:1px solid #b8c9db;width:35%;vertical-align:top;font-size:10px',
+    val:'background:#fff;padding:5px 8px;border:1px solid #b8c9db;vertical-align:top;font-size:10.5px',
+    thd:'background:#1e3a5f;color:#fff;font-weight:700;padding:5px 8px;border:1px solid #0b2545;text-align:center;font-size:10px',
+    tdc:'background:#edf3f9;font-weight:600;padding:5px 8px;border:1px solid #b8c9db;font-size:10px',
+    tda:'background:#fff;padding:5px 8px;border:1px solid #b8c9db;text-align:center;font-size:10.5px'
   };
+  const sec=t=>`<div style="background:#1e3a5f;color:#fff;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:5px 8px;margin-top:10px">${t}</div>`;
+  const tbl=(...rows)=>`<table style="width:100%;border-collapse:collapse">${rows.join('')}</table>`;
+  const row=(l,v,l2,v2)=>l2!==undefined
+    ?`<tr><td style="${S.lbl}">${l}</td><td style="${S.val}">${esc(v)}</td><td style="${S.lbl}">${l2}</td><td style="${S.val}">${esc(v2)}</td></tr>`
+    :`<tr><td style="${S.lbl}">${l}</td><td style="${S.val}" colspan="3">${esc(v)}</td></tr>`;
+  const coord=(n,e,h)=>n?`N ${n} · E ${e} · H ${h}`:'—';
 
-  // helpers
-  const sec=t=>`<div style="${S.sec}">${t}</div>`;
-  const row=(l,v,l2,v2)=>{
-    if(l2!==undefined) return `<tr><td style="${S.lbl}">${l}</td><td style="${S.val}">${esc(v)}</td><td style="${S.lbl}">${l2}</td><td style="${S.val}">${esc(v2)}</td></tr>`;
-    return `<tr><td style="${S.lbl}">${l}</td><td style="${S.val};width:62%" colspan="3">${esc(v)}</td></tr>`;
-  };
-  const tbl=(...rows)=>`<table style="${S.tbl}">${rows.join('')}</table>`;
-  const coord=(n,e,h)=> n? `Norte: ${n} — Este: ${e} — Huso: ${h}` : '—';
-
-  const html=`<div style="${S.page}">
-  <h2 style="${S.hdr};font-size:14px;font-weight:800">FICHA VISITA TERRENO</h2>
-  <h3 style="${S.hdr};font-size:11px;font-weight:400">Para levantamiento de demanda</h3>
-  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-    <span><b>Fecha:</b> ${esc(F_.fecha)}</span>
-    <span><b>Proyecto:</b> ${esc(p.nombreProyecto)}</span>
+  const html=`<div style="font-family:Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:0 auto">
+  <h2 style="text-align:center;margin:0 0 2px;font-size:14px">FICHA VISITA TERRENO</h2>
+  <p style="text-align:center;margin:0 0 6px;font-size:11px;font-weight:400">Para levantamiento de demanda</p>
+  <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:2px">
+    <span><b>Fecha:</b> ${esc(F_.fecha)}</span><span><b>Proyecto:</b> ${esc(p.nombreProyecto)}</span>
   </div>
 
-  ${sec('Información de contacto')}
-  ${tbl(
-    row('Nombre',c.nombre,'RUT',c.rut),
-    row('Teléfono',c.telefono,'Región',c.region),
-    row('Comuna',c.comuna,'Sector / Localidad',c.sector)
-  )}
+  ${sec('Beneficiario')}
+  ${tbl(row('Nombre',c.nombre,'RUT',c.rut),row('Teléfono',c.telefono,'Región',c.region),row('Comuna',c.comuna,'Sector / Localidad',c.sector))}
 
-  ${sec('Proyecto e identificación')}
-  ${tbl(
-    row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),
-    row('Sistema de riego',p.sistemaRiego,'Sup. Total Predio [ha]',p.supTotalHa||'—'),
-    row('Sup. a Regar [ha]',p.supRegarHa||'—','Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso))
-  )}
+  ${sec('Proyecto')}
+  ${tbl(row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),
+    row('Sistema(s) de riego',(p.sistemas||[]).map(s=>SISTEMA_MAP[s]).join(', ')||'—','Sup. Total / Sup. a Regar [ha]',(p.supTotalHa||'—')+' / '+(p.supRegarHa||'—')),
+    row('Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso),'',''))}
 
-  ${sec('1.- Fuente de agua para el riego')}
-  ${tbl(
-    row('Tipo fuente de agua',fu.tipo,'Coord. punto captación',coord(fu.coordNorte,fu.coordEste,fu.huso)),
-    row('Características de la fuente',fu.caracteristicas,'Observaciones fuente',fu.observaciones),
-    row('Caudal disponible [l/s]',fu.caudalLs||'—','Horas de riego disp. [hr/día]',fu.horasRiegoDia||'—')
-  )}
+  ${sec('1. Fuente de agua')}
+  ${tbl(row('Tipo fuente',fu.tipo,'Coord. captación',coord(fu.coordNorte,fu.coordEste,fu.huso)),
+    row('Características',fu.caracteristicas,'Observaciones',fu.observaciones),
+    row('Caudal disponible [l/s]',fu.caudalLs||'—','Horas de riego disp. [hr/día]',fu.horasRiegoDia||'—'))}
 
-  ${sec('2.- Derechos de agua y tenencia de la tierra')}
-  ${tbl(
-    row('Tipo tenencia de la tierra',te.tipoTierra,'Documentos vista tierra',te.docTierra),
-    row('Tipo de derecho de agua',te.tipoDerecho,'Documentos vista agua',te.docAgua)
-  )}
+  ${sec('2. Tenencia de tierra y agua')}
+  ${tbl(row('Tipo tenencia de la tierra',te.tipoTierra,'Documentos vista tierra',te.docTierra),
+    row('Tipo de derecho de agua',te.tipoDerecho,'Documentos vista agua',te.docAgua))}
 
-  ${sec('3.- Corroboración de caudal')}
-  <table style="${S.tbl}">
-    <tr><td style="${S.lbl}"></td><td style="${S.thd}">Situación actual</td><td style="${S.thd}">Situación con proyecto</td></tr>
-    <tr><td style="${S.tdc}">Cultivo de riego</td><td style="${S.tda}">${esc(cult(ca))}</td><td style="${S.tda}">${esc(cult(cp))}</td></tr>
-    <tr><td style="${S.tdc}">Superficie regada [m²]</td><td style="${S.tda}">${esc(ca.superficieM2)}</td><td style="${S.tda}">${esc(cp.superficieM2)}</td></tr>
-    <tr><td style="${S.tdc}">Método de riego</td><td style="${S.tda}">${esc(ca.metodo)}</td><td style="${S.tda}">${esc(cp.metodo)}</td></tr>
-    <tr><td style="${S.tdc}">Meses que riega</td><td style="${S.tda}">${esc(ca.meses)}</td><td style="${S.tda}">${esc(cp.meses)}</td></tr>
-    <tr><td style="${S.tdc}">Obras de riego</td><td style="${S.tda}">${esc(ca.obras)}</td><td style="${S.tda}">${esc(cp.obras)}</td></tr>
+  ${sec('3. Superficie de riego')}
+  <table style="width:100%;border-collapse:collapse">
+    <tr><td style="${S.tdc}"></td><td style="${S.thd}">Superficie actual (SRA)</td><td style="${S.thd}">Superficie futura (SRF)</td></tr>
+    <tr><td style="${S.tdc}">Cultivo</td><td style="${S.tda}">${esc(cult(a))}</td><td style="${S.tda}">${esc(cult(sf))}</td></tr>
+    <tr><td style="${S.tdc}">Superficie [m²]</td><td style="${S.tda}">${esc(a.superficieM2)}</td><td style="${S.tda}">${esc(sf.superficieM2)}</td></tr>
+    <tr><td style="${S.tdc}">Método de riego</td><td style="${S.tda}">${esc(a.metodo)}</td><td style="${S.tda}">${esc(sf.metodo)}</td></tr>
+    <tr><td style="${S.tdc}">Meses</td><td style="${S.tda}">${esc(a.meses)}</td><td style="${S.tda}">${esc(sf.meses)}</td></tr>
+    <tr><td style="${S.tdc}">Obras</td><td style="${S.tda}">${esc(a.obras)}</td><td style="${S.tda}">${esc(sf.obras)}</td></tr>
   </table>
 
-  ${sec('4.- Fuente de energía')}
-  ${tbl(
-    row('Tipo disponible',en.tipoDisponible,'Tipo proyectada',en.tipoProyectada),
-    row('Observaciones',en.observaciones,'','')
-  )}
+  ${sec('4. Energía')}
+  ${tbl(row('Tipo disponible',en.tipoDisponible,'Tipo proyectada',en.tipoProyectada),row('Observaciones',en.observaciones,'',''))}
 
-  ${sec('5.- Otros datos')}
-  ${tbl(
-    row('Con inicio de actividades',ot.inicioActividades,'Proyecto incluye IVA',ot.incluyeIVA),
-    row('Participa en programa INDAP',ot.participaINDAP,'Descripción',ot.descripcion)
-  )}
+  ${sec('5. Otros antecedentes')}
+  ${tbl(row('Con inicio de actividades',ot.inicioActividades,'Proyecto incluye IVA',ot.incluyeIVA),row('Usuario INDAP',ot.usuarioIndap,'Descripción',ot.descripcion))}
 
-  ${sec('6.- Datos encuestador')}
-  ${tbl(
-    row('Nombre encuestador',es.nombre,'Cargo',es.cargo),
-    row('Con consultor',es.conConsultor+(es.nombreConsultor?' — '+es.nombreConsultor:''),'Contacto',es.datosContacto)
-  )}
-
-  <div style="display:flex;gap:32px;margin-top:24px;page-break-inside:avoid">
+  <div style="display:flex;gap:40px;margin-top:28px;page-break-inside:avoid">
     <div style="flex:1;text-align:center">
-      <div style="height:70px;display:flex;align-items:flex-end;justify-content:center">
-        ${F_.firmaEncuestador?`<img src="${F_.firmaEncuestador}" style="max-height:70px;max-width:100%">`:'&nbsp;'}
-      </div>
-      <div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:10px">Firma encuestador / consultor</div>
+      <div style="height:72px;display:flex;align-items:flex-end;justify-content:center">${F_.firmaEncuestador?`<img src="${F_.firmaEncuestador}" style="max-height:72px">`:''}</div>
+      <div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:9.5px">Firma encuestador / consultor</div>
     </div>
     <div style="flex:1;text-align:center">
-      <div style="height:70px;display:flex;align-items:flex-end;justify-content:center">
-        ${F_.firmaBeneficiario?`<img src="${F_.firmaBeneficiario}" style="max-height:70px;max-width:100%">`:'&nbsp;'}
-      </div>
-      <div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:10px">Firma beneficiario/a</div>
+      <div style="height:72px;display:flex;align-items:flex-end;justify-content:center">${F_.firmaBeneficiario?`<img src="${F_.firmaBeneficiario}" style="max-height:72px">`:''}</div>
+      <div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:9.5px">Firma beneficiario / agricultor(a)</div>
     </div>
   </div>
 
-  ${F_.dibujoEsquematico?`
-  <div style="page-break-before:always">
-    ${sec('7.- Dibujo esquemático')}
-    <p style="font-size:9.5px;color:#555;margin:4px 0 6px">Límites prediales · Emplazamiento obra · Accesos · Fuente de agua · Obras existentes · Topografía · Caminos / canales</p>
-    <img src="${F_.dibujoEsquematico}" style="width:100%;border:1px solid #b8c9db">
-  </div>`:''}
-
-  ${F_.fotos.length?`
-  <div style="page-break-before:always">
-    ${sec('8.- Fotos referenciales')}
-    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">
-      ${F_.fotos.map(f=>`<img src="${f.dataUrl}" style="width:calc(50% - 5px);border:1px solid #b8c9db;border-radius:4px">`).join('')}
-    </div>
-  </div>`:''}
-
-  ${F_.anexos.length?`
-  <div style="page-break-before:always">
-    ${sec('Anexos documentales')}
-    ${F_.anexos.map((a,i)=>`
-    <div style="page-break-inside:avoid;margin-top:12px">
-      <div style="font-weight:700;margin-bottom:4px">${i+1}. ${esc(a.etiqueta||'Documento sin nombre')}</div>
-      <img src="${a.dataUrl}" style="width:100%;border:1px solid #b8c9db;border-radius:4px">
-    </div>`).join('')}
-  </div>`:''}
+  ${F_.dibujoEsquematico?`<div style="page-break-before:always">${sec('Croquis esquemático')}<img src="${F_.dibujoEsquematico}" style="width:100%;border:1px solid #b8c9db;margin-top:6px"></div>`:''}
+  ${F_.fotos.length?`<div style="page-break-before:always">${sec('Fotos referenciales')}<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">${F_.fotos.map(f=>`<img src="${f.dataUrl}" style="width:calc(50% - 5px);border:1px solid #b8c9db;border-radius:4px">`).join('')}</div></div>`:''}
+  ${F_.anexos.length?`<div style="page-break-before:always">${sec('Documentos anexos')}${F_.anexos.map((ax,i)=>`<div style="page-break-inside:avoid;margin-top:12px"><div style="font-weight:700;font-size:10.5px;margin-bottom:4px">${i+1}. ${esc(ax.etiqueta||'Documento')}</div><img src="${ax.dataUrl}" style="width:100%;border:1px solid #b8c9db;border-radius:4px"></div>`).join('')}</div>`:''}
 </div>`;
 
   const w=window.open('','_blank');
-  w.document.write(`<html><head><title>Ficha — ${esc(c.nombre||'terreno')}</title>
-    <style>@page{size:letter;margin:18mm}body{margin:0}</style></head><body>${html}</body></html>`);
-  w.document.close();
-  setTimeout(()=>w.print(),500);
+  w.document.write(`<html><head><title>Ficha — ${esc(c.nombre||'terreno')}</title><style>@page{size:letter;margin:15mm}body{margin:0}</style></head><body>${html}</body></html>`);
+  w.document.close();setTimeout(()=>w.print(),500);
 }
 
 // ---------- Init ----------
 (async function init(){
-  await idbOpen();
-  await goHome();
-  if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  await idbOpen();await goHome();
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
