@@ -133,7 +133,7 @@ function field(label,id,value,opts={}){
   if(t==='textarea') return `<div class="f${full}"><label>${label}</label><textarea id="${id}" placeholder="${esc(opts.placeholder||'')}">${esc(value||'')}</textarea></div>`;
   if(t==='radio'){
     const ropts=opts.options||['Si','No'];
-    return `<div class="f${full}"><label>${label}</label><div class="chk-row">${ropts.map(o=>`<label class="chk"><input type="radio" name="${id}" value="${o}"${value===o?' checked':''} onchange="document.getElementById('${id}_hidden').value=this.value"> ${o}</label>`).join('')}<input type="hidden" id="${id}_hidden" value="${esc(value||'')}"></div></div>`;
+    return `<div class="f${full}"><label>${label}</label><div class="chk-row">${ropts.map(o=>`<label class="chk"><input type="radio" name="${id}" value="${o}"${value===o?' checked':''} onclick="document.getElementById('${id}_hidden').value='${o}'"> ${o}</label>`).join('')}<input type="hidden" id="${id}_hidden" value="${esc(value||'')}"></div></div>`;
   }
   return `<div class="f${full}"><label>${label}</label><input type="${t}" id="${id}" value="${esc(value||'')}" placeholder="${esc(opts.placeholder||'')}"${opts.step?` step="${opts.step}"`:''} ></div>`;
 }
@@ -167,7 +167,7 @@ const RENDERERS={
       ${field('Consultor / Empresa','pr-consultor',p.consultor,{full:true})}
       ${field('ROL de Avalúo SII','pr-rol',p.rolAvaluo,{placeholder:'151-95'})}
       ${field('Sistema de riego','pr-sistema',p.sistemaRiego,{type:'select',options:SISTEMA_OPTS})}
-      ${field('Sistemas adicionales','pr-sisnota',p.sistemasNota,{placeholder:'Ej: goteo en invernadero + aspersión exterior'})}
+      ${field('Sistema secundario','pr-sistema2',p.sistemasNota,{type:'select',options:SISTEMA_OPTS})}
       ${field('Sup. Total Predio [ha]','pr-suptot',p.supTotalHa,{type:'number',step:'.01'})}
       ${field('Sup. a Regar [ha]','pr-supregar',p.supRegarHa,{type:'number',step:'.01'})}
     </div>
@@ -442,6 +442,7 @@ function exportarJSONDisenador(){
 }
 
 // ---- PDF ----
+function cerrarPDF(){const o=document.getElementById('pdfOverlay');if(o)o.remove();}
 function exportarPDF(){
   guardarPasoActual();
   const F_=F,c=F_.contacto,p=F_.proyecto,fu=F_.fuente,te=F_.tenencia,a=F_.sra,sf=F_.srf,en=F_.energia,ot=F_.otros;
@@ -455,6 +456,7 @@ function exportarPDF(){
   const tbl=(...rows)=>`<table style="width:100%;border-collapse:collapse">${rows.join('')}</table>`;
   const row=(l,v,l2,v2)=>l2!==undefined?`<tr><td style="${L}">${l}</td><td style="${V}">${esc(v)}</td><td style="${L}">${l2}</td><td style="${V}">${esc(v2)}</td></tr>`:`<tr><td style="${L}">${l}</td><td style="${V}" colspan="3">${esc(v)}</td></tr>`;
   const coord=(n,e,h)=>n?`N ${n} · E ${e} · H ${h}`:'—';
+  const sys2label=v=>SISTEMA_MAP[v]||'';
   const html=`<div style="font-family:Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:0 auto">
   <h2 style="text-align:center;margin:0 0 2px;font-size:14px">FICHA VISITA TERRENO</h2>
   <p style="text-align:center;margin:0 0 6px;font-size:11px">Para levantamiento de demanda</p>
@@ -464,7 +466,7 @@ function exportarPDF(){
   ${sec('Beneficiario')}
   ${tbl(row('Nombre',c.nombre,'RUT',c.rut),row('Teléfono',c.telefono,'Región',c.region),row('Comuna',c.comuna,'Sector / Localidad',c.sector))}
   ${sec('Proyecto')}
-  ${tbl(row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),row('Sistema de riego principal',SISTEMA_MAP[p.sistemaRiego]||p.sistemaRiego||'—','Sistemas adicionales',p.sistemasNota||'—'),row('Sup. Total / Sup. a Regar [ha]',(p.supTotalHa||'—')+' / '+(p.supRegarHa||'—'),'Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso)))}
+  ${tbl(row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),row('Sistema principal',sys2label(p.sistemaRiego)||'—','Sistema secundario',sys2label(p.sistemasNota)||'—'),row('Sup. Total / Sup. a Regar [ha]',(p.supTotalHa||'—')+' / '+(p.supRegarHa||'—'),'Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso)))}
   ${sec('1. Fuente de agua')}
   ${tbl(row('Tipo fuente',fu.tipo,'Coord. captación',coord(fu.coordNorte,fu.coordEste,fu.huso)),row('Caudal disponible [l/s]',fu.caudalLs||'—','Hrs. de riego/día',fu.horasRiegoDia||'—'),row('Características',fu.caracteristicas,'Observaciones',fu.observaciones))}
   ${sec('2. Tenencia de tierra y agua')}
@@ -488,9 +490,16 @@ function exportarPDF(){
   ${F_.fotos.length?`<div style="page-break-before:always">${sec('Fotos referenciales')}<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">${F_.fotos.map(f=>`<img src="${f.dataUrl}" style="width:calc(50% - 5px);border:1px solid #b8c9db;border-radius:4px">`).join('')}</div></div>`:''}
   ${F_.anexos.length?`<div style="page-break-before:always">${sec('Documentos anexos')}${F_.anexos.map((ax,i)=>`<div style="page-break-inside:avoid;margin-top:12px"><div style="font-weight:700;font-size:10.5px;margin-bottom:4px">${i+1}. ${esc(ax.etiqueta||'Documento')}</div><img src="${ax.dataUrl}" style="width:100%;border:1px solid #b8c9db;border-radius:4px"></div>`).join('')}</div>`:''}
 </div>`;
-  const w=window.open('','_blank');
-  w.document.write(`<html><head><title>Ficha — ${esc(c.nombre||'terreno')}</title><style>@page{size:letter;margin:15mm}body{margin:0}</style></head><body>${html}</body></html>`);
-  w.document.close();setTimeout(()=>w.print(),500);
+
+  // Overlay dentro de la misma página — funciona en iPad PWA sin perder contexto
+  const old=document.getElementById('pdfOverlay');if(old)old.remove();
+  const overlay=document.createElement('div');
+  overlay.id='pdfOverlay';overlay.className='pdf-overlay';
+  overlay.innerHTML=`<div class="pdf-bar">
+    <button class="btn pri" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+    <button class="btn" onclick="cerrarPDF()">✕ Cerrar</button>
+  </div><div id="pdfContent">${html}</div>`;
+  document.body.appendChild(overlay);
 }
 
 // ---- Init ----

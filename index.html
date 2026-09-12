@@ -42,7 +42,7 @@ body{margin:0;font-family:var(--sans);font-size:16px;background:var(--frost);col
 .btn.pri:active{background:var(--blue-mid)}
 .btn.warn{color:var(--err);border-color:#f3c9c3}
 .btn.sm{padding:6px 10px;font-size:.72rem}
-.pills{display:flex;gap:6px;overflow-x:auto;padding:10px 12px;background:#fff;border-bottom:1px solid var(--fog);position:sticky;top:58px;z-index:40}
+.pills{display:flex;gap:6px;overflow-x:auto;padding:10px 12px;background:#fff;border-bottom:1px solid var(--fog);position:sticky;top:58px;z-index:40;justify-content:center}
 .pill{flex-shrink:0;padding:9px 15px;border-radius:999px;border:1.5px solid var(--fog);background:#fff;font-size:.82rem;font-weight:700;color:var(--slate);cursor:pointer;white-space:nowrap}
 .pill.on{background:var(--navy);border-color:var(--navy);color:#fff}
 .step{display:none}
@@ -67,7 +67,10 @@ body{margin:0;font-family:var(--sans);font-size:16px;background:var(--frost);col
 .crop-wrap{position:relative;touch-action:none;max-width:100%;background:#000;border-radius:8px;overflow:hidden}
 .crop-wrap canvas{display:block;max-width:100%;height:auto}
 .handle{position:absolute;width:26px;height:26px;border-radius:50%;background:var(--blue);border:3px solid #fff;transform:translate(-50%,-50%);touch-action:none}
-.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:999px;font-size:.82rem;font-weight:600;z-index:200;opacity:0;transition:opacity .25s}
+.pdf-overlay{position:fixed;inset:0;background:#fff;z-index:200;overflow:auto;padding:16px}
+.pdf-bar{display:flex;gap:10px;margin-bottom:14px;position:sticky;top:0;background:#fff;padding-bottom:10px;border-bottom:2px solid var(--fog)}
+@media print{.pdf-bar{display:none}}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:999px;font-size:.82rem;font-weight:600;z-index:300;opacity:0;transition:opacity .25s}
 .toast.on{opacity:1}
 .badge{display:inline-block;background:var(--ice);color:var(--blue);font-size:.66rem;font-weight:800;padding:2px 8px;border-radius:999px;margin-left:6px}
 hr.sep{border:none;border-top:1px solid var(--fog);margin:12px 0}
