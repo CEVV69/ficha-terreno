@@ -10,6 +10,20 @@ const PFX={got:'g',asp:'a',mic:'m',car:'c'};
 const DR_SUP={asp:'a-strie',car:'c-supr',got:'g-sup',mic:'m-sup'};
 const SISTEMA_MAP={got:'Goteo',asp:'Aspersión',mic:'Microaspersión',car:'Carrete'};
 const SINO=['Si','No'];
+const ANEXO_CATS=[
+  'Anexo 8.4.1 — Análisis Hidrológico (Q85%)','Anexo 8.4.2 — Pruebas de Bombeo','Anexo 8.4.3 — Aforos',
+  'Anexo 8.1 — Plano de Ubicación del Proyecto','Anexo 8.2 — Identificación del Área de Riego',
+  'Anexo 8.13.1 — Memoria de Cálculo de Superficies','Anexo 8.13.2 — Estudio de Suelo / Informe de Asimilación',
+  'Anexo 8.5 — Diseño y Cálculos Hidráulicos','Anexo 8.6 — Estudios y Diseños Complementarios',
+  'Anexo 8.8 — Especificaciones Técnicas de Construcción','Anexo 8.12.1.1 — Planos Proyecto Tecnificación',
+  'Anexo 8.12.1.2 — Planos Obras Civiles (caseta/electrificación)','Anexo 8.9 — Cubicaciones',
+  'Anexo 8.10.1 — Presupuesto Detallado de Obras','Anexo 8.10.2 — Presupuesto Detallado Electrificación',
+  'Anexo 8.10.3 — Cotizaciones y Facturas','Anexo 8.10.5 — Declaración No Contribuyente IVA',
+  'Anexo 8.11 — Certificado CORFO PIR (FT-02)','Anexo AL-34 — Permisos y Autorizaciones',
+  'Ficha Técnica — Equipo de Bombeo','Ficha Técnica — Emisores / Goteros / Microaspersores',
+  'Ficha Técnica — Carrete / Cañón','Ficha Técnica — Paneles Fotovoltaicos / Inversor',
+  'Fotografías del Predio','Otro documento de respaldo'
+];
 
 // ---- IndexedDB ----
 let DB;
@@ -46,6 +60,7 @@ function migrar(f){
   if(!f.contacto.region)f.contacto.region='Ñuble';
   if(f.fuente.alturaSuccion===undefined)f.fuente.alturaSuccion='';
   if(f.fuente.deltaZ===undefined)f.fuente.deltaZ='';
+  (f.anexos||[]).forEach(a=>{if(!a.categoria)a.categoria='Otro documento de respaldo';});
   if(!f.croquisFondo)f.croquisFondo='';
   if(f.otros.usuarioIndap===undefined)f.otros.usuarioIndap=f.otros.participaINDAP||'Si';
   // borrar campos viejos que ya no se usan
@@ -267,13 +282,16 @@ const RENDERERS={
       <img src="${a.dataUrl}">
       <div class="info">
         <div style="font-weight:700;font-size:.9rem;margin-bottom:4px">${esc(a.etiqueta||'Sin nombre')}</div>
-        <input value="${esc(a.etiqueta)}" onchange="renombrarAnexo(${i},this.value)" placeholder="Renombrar…">
+        <input value="${esc(a.etiqueta)}" onchange="renombrarAnexo(${i},this.value)" placeholder="Renombrar…" style="margin-bottom:6px">
+        <select onchange="recategorizarAnexo(${i},this.value)" style="font-size:.78rem;padding:6px 8px;height:auto">
+          ${ANEXO_CATS.map(cat=>`<option value="${esc(cat)}"${a.categoria===cat?' selected':''}>${esc(cat)}</option>`).join('')}
+        </select>
         <button class="btn sm" style="margin-top:6px" onclick="descargarAnexo(${i})">⬇ Descargar</button>
       </div>
       <button class="btn sm warn" onclick="quitarAnexo(${i})">✕</button>
     </div>`).join('');
     return `<div class="sl">Documentos escaneados</div>
-    <p class="hint">Ingresa el nombre del documento antes de tomar la foto. Se recortará y enderezará automáticamente. Van incluidos en el .json completo; además puedes descargarlos como imágenes sueltas para subirlos donde corresponda.</p>
+    <p class="hint">Ingresa el nombre del documento antes de tomar la foto, y elige la categoría CNR correspondiente — así se clasifica automáticamente al importarlo en Diseñador de Riego.</p>
     <input type="file" accept="image/*" capture="environment" id="anexoInput" style="display:none" onchange="iniciarEscaneo(event)">
     <button class="btn pri" onclick="pedirNombreYEscanear()">📄 Escanear documento</button>
     ${F.anexos.length?`<button class="btn sm" style="margin-left:8px" onclick="descargarTodosAnexos()">⬇ Descargar todos</button>`:''}
@@ -512,10 +530,11 @@ function applyCrop(){
     else{od.data[io]=od.data[io+1]=od.data[io+2]=255;od.data[io+3]=255;}
   }
   oct.putImageData(od,0,0);
-  F.anexos.push({id:uuid(),etiqueta:_anexoNombre,dataUrl:oc.toDataURL('image/jpeg',.86)});
+  F.anexos.push({id:uuid(),etiqueta:_anexoNombre,categoria:'Otro documento de respaldo',dataUrl:oc.toDataURL('image/jpeg',.86)});
   document.getElementById('cropModal').style.display='none';autoGuardar();renderStep();
 }
 function renombrarAnexo(i,v){F.anexos[i].etiqueta=v;autoGuardar();}
+function recategorizarAnexo(i,v){F.anexos[i].categoria=v;autoGuardar();}
 function quitarAnexo(i){F.anexos.splice(i,1);autoGuardar();renderStep();}
 function descargarAnexo(i){const a=F.anexos[i];const l=document.createElement('a');l.href=a.dataUrl;l.download=(a.etiqueta||'anexo').replace(/[^\w\s-]/g,'')+'_'+(i+1)+'.jpg';l.click();}
 function descargarTodosAnexos(){
@@ -549,8 +568,30 @@ function exportarJSONDisenador(){
   fields[pfx+'-cult']=cult||'';fields[pfx+'-tfue']=fu.tipo||'';
   fields[pfx+'-der-tipo']=te.tipoDerecho||'';fields[pfx+'-q']=fu.caudalLs||'';fields[pfx+'-hrs']=fu.horasRiegoDia||'';
   fields[pfx+'-hs']=fu.alturaSuccion||'';fields[pfx+'-dz']=fu.deltaZ||'';
-  descargar(nombreBase()+'_Disenador_'+SISTEMA_MAP[sys]+'.json',JSON.stringify({__sys:sys,__name:p.nombreProyecto||c.nombre||'Proyecto',__date:new Date().toLocaleString('es-CL'),fields},null,2),'application/json');
-  toast('JSON para Diseñador exportado');
+
+  // Anexos y fotos en el mismo formato que usa Diseñador internamente (dr_anx_<sys>)
+  const b64Size=b64=>Math.round((b64.length-(b64.indexOf(',')+1))*3/4);
+  const anexosOut=(F.anexos||[]).map(a=>({
+    id:'a'+Date.now()+Math.random().toString(36).slice(2,5),
+    nombre:(a.etiqueta||'Documento').replace(/[^\w\s-]/g,'')+'.jpg',
+    tipo:'image/jpeg', mime:'image/jpeg',
+    categoria:a.categoria||'Otro documento de respaldo',
+    b64:a.dataUrl, size:b64Size(a.dataUrl),
+    fecha:new Date().toLocaleDateString('es-CL')
+  }));
+  const fotosOut=(F.fotos||[]).map((f,i)=>({
+    id:'a'+Date.now()+Math.random().toString(36).slice(2,5),
+    nombre:'Foto_predio_'+(i+1)+'.jpg',
+    tipo:'image/jpeg', mime:'image/jpeg',
+    categoria:'Fotografías del Predio',
+    b64:f.dataUrl, size:b64Size(f.dataUrl),
+    fecha:new Date().toLocaleDateString('es-CL')
+  }));
+
+  const out={__sys:sys,__name:p.nombreProyecto||c.nombre||'Proyecto',__date:new Date().toLocaleString('es-CL'),
+    fields, anexos:anexosOut.concat(fotosOut)};
+  descargar(nombreBase()+'_Disenador_'+SISTEMA_MAP[sys]+'.json',JSON.stringify(out,null,2),'application/json');
+  toast('JSON para Diseñador exportado ('+out.anexos.length+' anexo(s) incluidos)');
 }
 
 // ---- PDF ----
