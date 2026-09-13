@@ -1,26 +1,20 @@
 // ============================================================
-// Ficha de Terreno v4
+// Ficha de Terreno v5
 // ============================================================
-
 const CULTIVOS_DEFAULT=['Alfalfa','Pradera / Ballica','Maíz','Papa','Cebada','Trigo','Remolacha','Hortalizas','Frutales','Vides','Flores'];
 const FUENTES_DEFAULT=['Canal de riego','Río / Estero','Lago / Laguna','Pozo profundo','Pozo noria','Pozo zanja','Puntera (wellpoint)','Pozo sondaje (tubería de revestimiento)','Estanque acumulador','Tranque predial','Embalse','Vertiente intrapredial','Aguas lluvia (acumulación)'];
-const DERECHO_OPTS=[
-  {v:'permanente',l:'Permanente — inscrito CBR'},
-  {v:'eventual',l:'Eventual — inscrito CBR'},
-  {v:'no-inscrito-lluvia',l:'No inscrito — Art. 10 (Aguas lluvia)'},
-  {v:'no-inscrito-vertiente',l:'No inscrito — Art. 20 (Vertiente/laguna)'},
-  {v:'no-inscrito-art56',l:'No inscrito — Art. 56 (Consumo humano)'}
-];
+const DERECHO_OPTS=[{v:'permanente',l:'Permanente — inscrito CBR'},{v:'eventual',l:'Eventual — inscrito CBR'},{v:'no-inscrito-lluvia',l:'No inscrito — Art. 10 (Aguas lluvia)'},{v:'no-inscrito-vertiente',l:'No inscrito — Art. 20 (Vertiente/laguna)'},{v:'no-inscrito-art56',l:'No inscrito — Art. 56 (Consumo humano)'}];
 const SISTEMA_OPTS=[{v:'got',l:'Goteo'},{v:'asp',l:'Aspersión'},{v:'mic',l:'Microaspersión'},{v:'car',l:'Carrete'}];
 const REGIONES=['Arica y Parinacota','Tarapacá','Antofagasta','Atacama','Coquimbo','Valparaíso','Metropolitana','O\'Higgins','Maule','Ñuble','Biobío','La Araucanía','Los Ríos','Los Lagos','Aysén','Magallanes'];
 const PFX={got:'g',asp:'a',mic:'m',car:'c'};
 const DR_SUP={asp:'a-strie',car:'c-supr',got:'g-sup',mic:'m-sup'};
 const SISTEMA_MAP={got:'Goteo',asp:'Aspersión',mic:'Microaspersión',car:'Carrete'};
+const SINO=['Si','No'];
 
 // ---- IndexedDB ----
 let DB;
-function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('fichaTerrenoDB',2);r.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains('fichas'))d.createObjectStore('fichas',{keyPath:'id'});};r.onsuccess=e=>{DB=e.target.result;res(DB);};r.onerror=e=>rej(e);});}
-function idbPut(f){return new Promise((res,rej)=>{const tx=DB.transaction('fichas','readwrite');tx.objectStore('fichas').put(f);tx.oncomplete=()=>res();tx.onerror=e=>rej(e);});}
+function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('fichaTerrenoDB',3);r.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains('fichas'))d.createObjectStore('fichas',{keyPath:'id'});};r.onsuccess=e=>{DB=e.target.result;res(DB);};r.onerror=e=>rej(e);});}
+function idbPut(f){if(!DB)return;try{const tx=DB.transaction('fichas','readwrite');tx.objectStore('fichas').put(f);}catch(e){console.warn('idbPut:',e);}}
 function idbDelete(id){return new Promise((res,rej)=>{const tx=DB.transaction('fichas','readwrite');tx.objectStore('fichas').delete(id);tx.oncomplete=()=>res();tx.onerror=e=>rej(e);});}
 function idbGetAll(){return new Promise((res,rej)=>{const tx=DB.transaction('fichas','readonly');const r=tx.objectStore('fichas').getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=e=>rej(e);});}
 
@@ -31,31 +25,37 @@ function uuid(){return 'f'+Date.now().toString(36)+Math.random().toString(36).sl
 function blankFicha(){
   return{id:uuid(),fecha:new Date().toISOString().slice(0,10),creado:Date.now(),modificado:Date.now(),
     contacto:{nombre:'',rut:'',telefono:'',region:'Ñuble',comuna:'',sector:''},
-    proyecto:{nombreProyecto:'',consultor:'',rolAvaluo:'',sistemaRiego:'',sistemasNota:'',supTotalHa:'',supRegarHa:'',coordNorte:'',coordEste:'',huso:'18'},
+    proyecto:{nombreProyecto:'',consultor:'',rolAvaluo:'',sistemaRiego:'',sistemaSecundario:'',supTotalHa:'',supRegarHa:'',coordNorte:'',coordEste:'',huso:'18'},
     fuente:{tipo:'',coordNorte:'',coordEste:'',huso:'18',caracteristicas:'',observaciones:'',caudalLs:'',horasRiegoDia:''},
     tenencia:{tipoTierra:'',tipoDerecho:''},
     sra:{cultivo:'',cultivoOtro:'',superficieM2:'',metodo:'',meses:'',obras:''},
-    srf:{cultivo:'',cultivoOtro:'',superficieM2:'',metodo:'',meses:'',obras:''},
-    energia:{tipoDisponible:'',tipoProyectada:'',observaciones:''},
-    otros:{inicioActividades:'No',incluyeIVA:'Si',usuarioIndap:'Si',descripcion:''},
-    firmaEncuestador:'',firmaBeneficiario:'',dibujoEsquematico:'',
+    srf:{cultivo:'',cultivoOtro:'',metodo:'',meses:'',obras:''},
+    energia:{tipoDisponible:'',tipoProyectada:'',notas:''},
+    otros:{inicioActividades:'Si',incluyeIVA:'Si',usuarioIndap:'Si'},
+    croquisFondo:'',dibujoEsquematico:'',
     fotos:[],anexos:[]};
 }
 
 function migrar(f){
-  // compatibilidad con fichas guardadas en versiones anteriores
-  if(!f.sra) f.sra=f.corrobActual||{cultivo:'',cultivoOtro:'',superficieM2:'',metodo:'',meses:'',obras:''};
-  if(!f.srf) f.srf=f.corrobProyecto||{cultivo:'',cultivoOtro:'',superficieM2:'',metodo:'',meses:'',obras:''};
-  if(!f.tenencia) f.tenencia={tipoTierra:'',tipoDerecho:''};
-  if(f.proyecto.sistemas&&!f.proyecto.sistemaRiego) f.proyecto.sistemaRiego=f.proyecto.sistemas[0]||'';
-  if(!f.proyecto.sistemasNota) f.proyecto.sistemasNota='';
-  if(!f.contacto.region) f.contacto.region='Ñuble';
-  if(!f.otros.usuarioIndap) f.otros.usuarioIndap=f.otros.participaINDAP||'Si';
+  if(!f.sra)f.sra={cultivo:'',cultivoOtro:'',superficieM2:'',metodo:'',meses:'',obras:''};
+  if(!f.srf)f.srf={cultivo:'',cultivoOtro:'',metodo:'',meses:'',obras:''};
+  if(!f.tenencia)f.tenencia={tipoTierra:'',tipoDerecho:''};
+  if(!f.otros)f.otros={inicioActividades:'Si',incluyeIVA:'Si',usuarioIndap:'Si'};
+  if(!f.proyecto.sistemaSecundario)f.proyecto.sistemaSecundario=f.proyecto.sistemasNota||'';
+  if(Array.isArray(f.proyecto.sistemas)&&!f.proyecto.sistemaRiego)f.proyecto.sistemaRiego=f.proyecto.sistemas[0]||'';
+  if(!f.contacto.region)f.contacto.region='Ñuble';
+  if(!f.croquisFondo)f.croquisFondo='';
+  if(f.otros.usuarioIndap===undefined)f.otros.usuarioIndap=f.otros.participaINDAP||'Si';
+  // borrar campos viejos que ya no se usan
+  delete f.firmaEncuestador; delete f.firmaBeneficiario;
   return f;
 }
 
 // ---- Toast ----
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),2200);}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),2800);}
+
+// ---- Auto-guardado silencioso ----
+function autoGuardar(){if(F&&DB){F.modificado=Date.now();idbPut(F);}}
 
 // ---- Home ----
 async function goHome(){
@@ -80,7 +80,7 @@ async function renderLista(){
   </div>`).join('');
 }
 async function borrarFicha(id){if(!confirm('¿Eliminar esta ficha?'))return;await idbDelete(id);toast('Eliminada');renderLista();}
-function nuevaFicha(){F=blankFicha();curStep=0;abrirEditor();}
+function nuevaFicha(){F=blankFicha();autoGuardar();curStep=0;abrirEditor();}
 async function abrirFicha(id){const fichas=await idbGetAll();F=migrar(fichas.find(f=>f.id===id));curStep=0;abrirEditor();}
 function abrirEditor(){
   document.getElementById('home').style.display='none';
@@ -91,12 +91,12 @@ function abrirEditor(){
   renderPills();renderStep();
 }
 
-// ---- Pasos (7 en total) ----
+// ---- Pasos ----
 const STEPS=[
   {id:'datos_generales',t:'Datos generales'},
   {id:'fuente_tenencia',t:'Fuente / Tenencia'},
   {id:'superficie_energia',t:'Sup. / Energía'},
-  {id:'firmas_croquis',t:'Firmas / Croquis'},
+  {id:'croquis',t:'Croquis'},
   {id:'fotos',t:'Fotos'},
   {id:'anexos',t:'Anexos'},
   {id:'exportar',t:'Exportar'}
@@ -113,33 +113,27 @@ function renderStep(){
       <button class="btn" onclick="pasoAnterior()"${curStep===0?' disabled':''}>‹ Anterior</button>
       <button class="btn pri" onclick="pasoSiguiente()">${curStep===STEPS.length-1?'Finalizar':'Siguiente ›'}</button>
     </div>`;
-  if(s.id==='firmas_croquis')setTimeout(()=>{initFirmas();initCroquis();},80);
+  if(s.id==='croquis')setTimeout(initCroquis,80);
 }
 function pasoAnterior(){guardarPasoActual();if(curStep>0){curStep--;renderPills();renderStep();}}
-async function pasoSiguiente(){guardarPasoActual();if(curStep<STEPS.length-1){curStep++;renderPills();renderStep();}else{await guardarFicha();toast('Ficha guardada ✓');}}
-async function guardarFicha(){F.modificado=Date.now();await idbPut(F);}
+function pasoSiguiente(){guardarPasoActual();if(curStep<STEPS.length-1){curStep++;renderPills();renderStep();}else{toast('Ficha guardada ✓');goHome();}}
 
 // ---- Helpers formulario ----
 function val(id){const e=document.getElementById(id);if(!e)return '';if(e.type==='checkbox')return e.checked;return e.value;}
-function radioVal(id){const el=document.querySelector(`input[name="${id}"]:checked`);return el?el.value:'';}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 
 function field(label,id,value,opts={}){
   const t=opts.type||'text',full=opts.full?' full':'';
   if(t==='select'){
-    const opts2=(opts.options||[]).map(o=>{const v=typeof o==='string'?o:o.v,l=typeof o==='string'?o:o.l;return `<option value="${esc(v)}"${v===value?' selected':''}>${esc(l)}</option>`;}).join('');
-    return `<div class="f${full}"><label>${label}</label><select id="${id}"><option value="">—</option>${opts2}</select></div>`;
+    const os=(opts.options||[]).map(o=>{const v=typeof o==='string'?o:o.v,l=typeof o==='string'?o:o.l;return `<option value="${esc(v)}"${v===value?' selected':''}>${esc(l)}</option>`;}).join('');
+    return `<div class="f${full}"><label>${label}</label><select id="${id}"><option value="">—</option>${os}</select></div>`;
   }
-  if(t==='textarea') return `<div class="f${full}"><label>${label}</label><textarea id="${id}" placeholder="${esc(opts.placeholder||'')}">${esc(value||'')}</textarea></div>`;
-  if(t==='radio'){
-    const ropts=opts.options||['Si','No'];
-    return `<div class="f${full}"><label>${label}</label><div class="chk-row">${ropts.map(o=>`<label class="chk"><input type="radio" name="${id}" value="${o}"${value===o?' checked':''}> ${o}</label>`).join('')}</div></div>`;
-  }
+  if(t==='textarea')return `<div class="f${full}"><label>${label}</label><textarea id="${id}" placeholder="${esc(opts.placeholder||'')}">${esc(value||'')}</textarea></div>`;
   return `<div class="f${full}"><label>${label}</label><input type="${t}" id="${id}" value="${esc(value||'')}" placeholder="${esc(opts.placeholder||'')}"${opts.step?` step="${opts.step}"`:''} ></div>`;
 }
 
 function coordRow(pfx,norte,este,huso){
-  return `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:nowrap">
+  return `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:nowrap;margin-bottom:10px">
     <div class="f" style="flex:3"><label>UTM Norte [m]</label><input type="number" id="${pfx}-utmn" value="${esc(norte||'')}"></div>
     <div class="f" style="flex:3"><label>UTM Este [m]</label><input type="number" id="${pfx}-utme" value="${esc(este||'')}"></div>
     <div class="f" style="flex:1;min-width:54px"><label>Huso</label><input type="text" id="${pfx}-huso" value="${esc(huso||'18')}"></div>
@@ -166,8 +160,8 @@ const RENDERERS={
       ${field('Nombre del proyecto','pr-nombre',p.nombreProyecto,{full:true,placeholder:'Ej: Habilitación pozo y riego por goteo'})}
       ${field('Consultor / Empresa','pr-consultor',p.consultor,{full:true})}
       ${field('ROL de Avalúo SII','pr-rol',p.rolAvaluo,{placeholder:'151-95'})}
-      ${field('Sistema de riego','pr-sistema',p.sistemaRiego,{type:'select',options:SISTEMA_OPTS})}
-      ${field('Sistema secundario','pr-sistema2',p.sistemasNota,{type:'select',options:SISTEMA_OPTS})}
+      ${field('Sistema de riego principal','pr-sistema',p.sistemaRiego,{type:'select',options:SISTEMA_OPTS})}
+      ${field('Sistema secundario','pr-sistema2',p.sistemaSecundario,{type:'select',options:SISTEMA_OPTS})}
       ${field('Sup. Total Predio [ha]','pr-suptot',p.supTotalHa,{type:'number',step:'.01'})}
       ${field('Sup. a Regar [ha]','pr-supregar',p.supRegarHa,{type:'number',step:'.01'})}
     </div>
@@ -222,26 +216,32 @@ const RENDERERS={
     <div class="fg">
       ${field('Energía disponible','en-disp',en.tipoDisponible,{type:'select',options:['Eléctrica (red)','Diesel / Bencina','No dispone']})}
       ${field('Energía proyectada','en-proy',en.tipoProyectada,{type:'select',options:['Eléctrica (red)','Fotovoltaica','Diesel / Bencina','Mixta']})}
-      ${field('Con inicio de actividades','ot-inicio',ot.inicioActividades,{type:'radio'})}
-      ${field('Proyecto incluye IVA','ot-iva',ot.incluyeIVA,{type:'radio'})}
-      ${field('Usuario INDAP','ot-indap',ot.usuarioIndap,{type:'radio'})}
-      ${field('Observaciones energía / Notas','en-obs-desc',en.observaciones+(ot.descripcion?'\n'+ot.descripcion:''),{type:'textarea',full:true})}
+      ${field('Con inicio de actividades','ot-inicio',ot.inicioActividades,{type:'select',options:SINO})}
+      ${field('Proyecto incluye IVA','ot-iva',ot.incluyeIVA,{type:'select',options:SINO})}
+      ${field('Usuario INDAP','ot-indap',ot.usuarioIndap,{type:'select',options:SINO})}
+      ${field('Notas y observaciones','en-notas',en.notas,{type:'textarea',full:true})}
     </div>`;
   },
 
-  firmas_croquis(){
-    return `<div class="sl">Firma encuestador / consultor</div>
-    <div class="sig-box"><canvas id="sigCanvas1"></canvas></div>
-    <button class="btn sm" onclick="limpiarFirma(1)">Limpiar</button>
-    <hr class="sep">
-    <div class="sl">Firma beneficiario / agricultor(a)</div>
-    <div class="sig-box"><canvas id="sigCanvas2"></canvas></div>
-    <button class="btn sm" onclick="limpiarFirma(2)">Limpiar</button>
-    <hr class="sep">
-    <div class="sl">Croquis esquemático</div>
-    <p class="hint">Límites prediales · Emplazamiento obra · Accesos · Fuente de agua · Topografía · Caminos / canales</p>
-    <div class="sig-box" style="border-style:solid"><canvas id="croquisCanvas" style="height:480px"></canvas></div>
-    <button class="btn sm" onclick="limpiarCroquis()">Limpiar</button>`;
+  croquis(){
+    return `<div class="sl">Croquis esquemático</div>
+    <p class="hint" style="margin-bottom:10px">
+      1) Toca "Abrir Mapas" → el mapa se abrirá en las coordenadas del proyecto<br>
+      2) Toma un screenshot del mapa y vuelve a esta app<br>
+      3) Toca "Importar foto de fondo" y elige tu screenshot<br>
+      4) Dibuja sobre el mapa con tu dedo
+    </p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn" onclick="abrirMapas()">🗺 Abrir Mapas</button>
+      <input type="file" accept="image/*" id="fondoInput" style="display:none" onchange="setFondo(event)">
+      <button class="btn" onclick="document.getElementById('fondoInput').click()">📷 Importar foto de fondo</button>
+      <button class="btn sm" onclick="limpiarDibujo()">✏️ Limpiar dibujo</button>
+      <button class="btn sm warn" onclick="limpiarTodo()">🗑 Limpiar todo</button>
+    </div>
+    <div class="sig-box" style="border-style:solid;position:relative">
+      <canvas id="croquisBg" style="position:absolute;inset:0;width:100%;height:100%;display:block"></canvas>
+      <canvas id="croquisCanvas" style="width:100%;height:480px;display:block;position:relative;z-index:1"></canvas>
+    </div>`;
   },
 
   fotos(){
@@ -256,14 +256,14 @@ const RENDERERS={
     const items=F.anexos.map((a,i)=>`<div class="anexo-item">
       <img src="${a.dataUrl}">
       <div class="info">
-        <div style="font-weight:700;font-size:.85rem;margin-bottom:4px">${esc(a.etiqueta||'Sin nombre')}</div>
+        <div style="font-weight:700;font-size:.9rem;margin-bottom:4px">${esc(a.etiqueta||'Sin nombre')}</div>
         <input value="${esc(a.etiqueta)}" onchange="renombrarAnexo(${i},this.value)" placeholder="Renombrar…">
         <button class="btn sm" style="margin-top:6px" onclick="descargarAnexo(${i})">⬇ Descargar</button>
       </div>
       <button class="btn sm warn" onclick="quitarAnexo(${i})">✕</button>
     </div>`).join('');
     return `<div class="sl">Documentos escaneados</div>
-    <p class="hint">Ingresa el nombre del documento, luego toma la foto. Se recortará y enderezará automáticamente. Los anexos se incluyen en el .json de exportación.</p>
+    <p class="hint">Ingresa el nombre del documento antes de tomar la foto. Se recortará y enderezará automáticamente.</p>
     <input type="file" accept="image/*" capture="environment" id="anexoInput" style="display:none" onchange="iniciarEscaneo(event)">
     <button class="btn pri" onclick="pedirNombreYEscanear()">📄 Escanear documento</button>
     ${items}`;
@@ -271,15 +271,14 @@ const RENDERERS={
 
   exportar(){
     return `<div class="sl">Guardar / Exportar</div>
-    <button class="btn pri" style="width:100%;margin-bottom:10px" onclick="guardarFicha().then(()=>toast('Guardado ✓'))">💾 Guardar ficha</button>
-    <hr class="sep">
+    <p class="hint">La ficha se guarda automáticamente al navegar entre pasos.</p>
     <button class="btn" style="width:100%;margin-bottom:8px" onclick="exportarPDF()">📄 Generar ficha PDF</button>
     <button class="btn" style="width:100%;margin-bottom:8px" onclick="exportarJSONCompleto()">⬇ Exportar ficha completa (.json)</button>
     <button class="btn" style="width:100%;margin-bottom:8px" onclick="exportarJSONDisenador()">⬇ Exportar para Diseñador de Riego (.json)</button>`;
   }
 };
 
-// ---- Guardar paso actual ----
+// ---- Guardar paso + auto-save ----
 function guardarPasoActual(){
   const s=STEPS[curStep].id;
   if(s==='datos_generales'){
@@ -287,9 +286,10 @@ function guardarPasoActual(){
     c.nombre=val('ct-nombre');c.rut=val('ct-rut');c.telefono=val('ct-tel');
     c.region=val('ct-region');c.comuna=val('ct-comuna');c.sector=val('ct-sector');
     p.nombreProyecto=val('pr-nombre');p.consultor=val('pr-consultor');p.rolAvaluo=val('pr-rol');
-    p.sistemaRiego=val('pr-sistema');p.sistemasNota=val('pr-sisnota');
+    p.sistemaRiego=val('pr-sistema');p.sistemaSecundario=val('pr-sistema2');
     p.supTotalHa=val('pr-suptot');p.supRegarHa=val('pr-supregar');
     p.coordNorte=val('pr-utmn');p.coordEste=val('pr-utme');p.huso=val('pr-huso');
+    document.getElementById('topTitle').textContent=F.contacto.nombre||'Nueva ficha';
   }else if(s==='fuente_tenencia'){
     const f=F.fuente,t=F.tenencia;
     f.tipo=val('fu-tipo');f.caudalLs=val('fu-caudal');f.horasRiegoDia=val('fu-horas');
@@ -300,11 +300,10 @@ function guardarPasoActual(){
     const a=F.sra,sf=F.srf,en=F.energia,ot=F.otros;
     a.cultivo=val('sra-cult');a.cultivoOtro=val('sra-cultotro');a.superficieM2=val('sra-sup');a.metodo=val('sra-met');a.meses=val('sra-meses');a.obras=val('sra-obras');
     sf.cultivo=val('srf-cult');sf.cultivoOtro=val('srf-cultotro');sf.metodo=val('srf-met');sf.meses=val('srf-meses');sf.obras=val('srf-obras');
-    en.tipoDisponible=val('en-disp');en.tipoProyectada=val('en-proy');
-    const enobs=val('en-obs-desc');en.observaciones=enobs;ot.descripcion='';
-    ot.inicioActividades=radioVal('ot-inicio');ot.incluyeIVA=radioVal('ot-iva');ot.usuarioIndap=radioVal('ot-indap');
+    en.tipoDisponible=val('en-disp');en.tipoProyectada=val('en-proy');en.notas=val('en-notas');
+    ot.inicioActividades=val('ot-inicio');ot.incluyeIVA=val('ot-iva');ot.usuarioIndap=val('ot-indap');
   }
-  F.modificado=Date.now();
+  autoGuardar();
 }
 
 // ---- GPS + UTM ----
@@ -318,18 +317,15 @@ function capturarGPS(pfx){
     document.getElementById(pfx+'-huso').value=u.zone;
     toast('Coordenadas capturadas ✓');
   },err=>{
-    if(err.code===1) toast('Permiso GPS denegado. En iPad: Ajustes › Privacidad › Localización › Safari → Permitir');
-    else if(err.code===2) toast('Señal GPS no disponible. Sal al exterior o ingresa manualmente.');
-    else toast('Error GPS ('+err.code+'): '+err.message);
+    if(err.code===1)toast('GPS denegado — iPad: Ajustes › Privacidad › Localización › Safari › Permitir');
+    else if(err.code===2)toast('GPS sin señal. Sal al exterior o ingresa manualmente.');
+    else toast('Error GPS ('+err.code+')');
   },{enableHighAccuracy:true,timeout:15000});
 }
 function toUTM(lat,lon){
-  const a=6378137,e=0.081819191,k0=0.9996;
-  const zone=Math.floor((lon+180)/6)+1;
-  const lo=((zone-1)*6-180+3)*Math.PI/180;
-  const lr=lat*Math.PI/180,ln=lon*Math.PI/180;
-  const es=e*e,ep=es/(1-es),N=a/Math.sqrt(1-es*Math.sin(lr)**2);
-  const T=Math.tan(lr)**2,C=ep*Math.cos(lr)**2,A=Math.cos(lr)*(ln-lo);
+  const a=6378137,e=0.081819191,k0=0.9996,zone=Math.floor((lon+180)/6)+1;
+  const lo=((zone-1)*6-180+3)*Math.PI/180,lr=lat*Math.PI/180,ln=lon*Math.PI/180;
+  const es=e*e,ep=es/(1-es),N=a/Math.sqrt(1-es*Math.sin(lr)**2),T=Math.tan(lr)**2,C=ep*Math.cos(lr)**2,A=Math.cos(lr)*(ln-lo);
   const M=a*((1-es/4-3*es**2/64-5*es**3/256)*lr-(3*es/8+3*es**2/32+45*es**3/1024)*Math.sin(2*lr)+(15*es**2/256+45*es**3/1024)*Math.sin(4*lr)-(35*es**3/3072)*Math.sin(6*lr));
   let east=k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T**2+72*C-58*ep)*A**5/120)+500000;
   let north=k0*(M+N*Math.tan(lr)*(A**2/2+(5-T+9*C+4*C**2)*A**4/24+(61-58*T+T**2+600*C-330*ep)*A**6/720));
@@ -337,39 +333,118 @@ function toUTM(lat,lon){
   return{n:Math.round(north),e:Math.round(east),zone};
 }
 
-// ---- Canvas firmas/croquis ----
-function setupPad(id,initial,onEnd){
-  const c=document.getElementById(id);if(!c)return;
-  const dpr=window.devicePixelRatio||1,rect=c.getBoundingClientRect();
-  const h=parseInt(c.style.height)||160;
-  c.width=rect.width*dpr;c.height=h*dpr;
-  const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.lineWidth=2.2;ctx.lineCap='round';ctx.strokeStyle='#0b2545';
-  if(initial){const img=new Image();img.onload=()=>ctx.drawImage(img,0,0,rect.width,h);img.src=initial;}
+// ---- Croquis ----
+let _croquisCtx=null, _croquisW=0, _croquisH=0;
+
+function initCroquis(){
+  const cv=document.getElementById('croquisCanvas');
+  const bg=document.getElementById('croquisBg');
+  if(!cv||!bg)return;
+  const dpr=window.devicePixelRatio||1;
+  const rect=cv.getBoundingClientRect();
+  const w=rect.width, h=480;
+  cv.width=w*dpr; cv.height=h*dpr;
+  bg.width=w*dpr; bg.height=h*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  _croquisCtx=ctx; _croquisW=w; _croquisH=h;
+  ctx.lineWidth=2.5; ctx.lineCap='round'; ctx.strokeStyle='#c0392b';
+
+  // dibujar fondo si existe
+  if(F.croquisFondo){
+    const img=new Image();
+    img.onload=()=>{
+      const bctx=bg.getContext('2d'); bctx.scale(dpr,dpr);
+      bctx.drawImage(img,0,0,w,h);
+      // restaurar dibujo encima si existe
+      if(F.dibujoEsquematico){const d=new Image();d.onload=()=>ctx.drawImage(d,0,0,w,h);d.src=F.dibujoEsquematico;}
+    };img.src=F.croquisFondo;
+  }else if(F.dibujoEsquematico){
+    const d=new Image();d.onload=()=>ctx.drawImage(d,0,0,w,h);d.src=F.dibujoEsquematico;
+  }
+
   let drawing=false,last=null;
-  const pos=e=>{const r=c.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top};};
+  const pos=e=>{const r=cv.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top};};
   const start=e=>{drawing=true;last=pos(e);e.preventDefault();};
-  const move=e=>{if(!drawing)return;const p=pos(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;e.preventDefault();};
-  const end=()=>{if(drawing&&onEnd)onEnd(c.toDataURL());drawing=false;};
-  c.addEventListener('mousedown',start);c.addEventListener('mousemove',move);window.addEventListener('mouseup',end);
-  c.addEventListener('touchstart',start,{passive:false});c.addEventListener('touchmove',move,{passive:false});c.addEventListener('touchend',end);
-  c._ctx=ctx;
+  const move=e=>{
+    if(!drawing)return;const p=pos(e);
+    ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;
+    e.preventDefault();
+  };
+  const end=()=>{
+    if(!drawing)return;drawing=false;
+    // guardar solo el canvas de dibujo
+    F.dibujoEsquematico=cv.toDataURL('image/png');
+    autoGuardar();
+  };
+  cv.addEventListener('mousedown',start);cv.addEventListener('mousemove',move);window.addEventListener('mouseup',end);
+  cv.addEventListener('touchstart',start,{passive:false});cv.addEventListener('touchmove',move,{passive:false});cv.addEventListener('touchend',end);
 }
-function initFirmas(){setupPad('sigCanvas1',F.firmaEncuestador,d=>F.firmaEncuestador=d);setupPad('sigCanvas2',F.firmaBeneficiario,d=>F.firmaBeneficiario=d);}
-function limpiarFirma(n){const id=n===1?'sigCanvas1':'sigCanvas2';const c=document.getElementById(id);c._ctx.clearRect(0,0,c.width,c.height);n===1?F.firmaEncuestador='':F.firmaBeneficiario='';}
-function initCroquis(){setupPad('croquisCanvas',F.dibujoEsquematico,d=>F.dibujoEsquematico=d);}
-function limpiarCroquis(){const c=document.getElementById('croquisCanvas');c._ctx.clearRect(0,0,c.width,c.height);F.dibujoEsquematico='';}
+
+function abrirMapas(){
+  const n=F.proyecto.coordNorte, e=F.proyecto.coordEste;
+  const lat=n&&e?utmToLatLon(parseFloat(n),parseFloat(e),parseInt(F.proyecto.huso)||18):null;
+  const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent);
+  if(lat){
+    const url=isIOS?`maps://?q=${lat.lat},${lat.lon}&z=17`:`https://maps.google.com/?q=${lat.lat},${lat.lon}&z=17`;
+    window.open(url,'_blank');
+  }else{
+    window.open(isIOS?'maps://':'https://maps.google.com/','_blank');
+    toast('Sin coordenadas — abre en tu ubicación actual');
+  }
+}
+// Conversión inversa UTM → lat/lon (para abrir Maps)
+function utmToLatLon(N,E,zone){
+  const a=6378137,e=0.081819191,k0=0.9996;
+  const x=E-500000,es=e*e;
+  const e1=(1-Math.sqrt(1-es))/(1+Math.sqrt(1-es));
+  const M=N/k0;
+  const mu=M/(a*(1-es/4-3*es**2/64-5*es**3/256));
+  const phi1=mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)+(21*e1**2/16-55*e1**4/32)*Math.sin(4*mu)+(151*e1**3/96)*Math.sin(6*mu);
+  const ep2=es/(1-es),N1=a/Math.sqrt(1-es*Math.sin(phi1)**2),T1=Math.tan(phi1)**2,C1=ep2*Math.cos(phi1)**2,R1=a*(1-es)/Math.pow(1-es*Math.sin(phi1)**2,1.5),D=x/(N1*k0);
+  const lat=phi1-(N1*Math.tan(phi1)/R1)*(D**2/2-(5+3*T1+10*C1-4*C1**2-9*ep2)*D**4/24+(61+90*T1+298*C1+45*T1**2-252*ep2-3*C1**2)*D**6/720);
+  const lon=((zone-1)*6-180+3)*Math.PI/180+(D-(1+2*T1+C1)*D**3/6+(5-2*C1+28*T1-3*C1**2+8*ep2+24*T1**2)*D**5/120)/Math.cos(phi1);
+  return{lat:lat*180/Math.PI,lon:lon*180/Math.PI};
+}
+
+function setFondo(ev){
+  const file=ev.target.files[0];if(!file)return;
+  const r=new FileReader();r.onload=e=>{
+    const img=new Image();img.onload=()=>{
+      const bg=document.getElementById('croquisBg');if(!bg)return;
+      const dpr=window.devicePixelRatio||1;
+      const ctx=bg.getContext('2d');
+      ctx.clearRect(0,0,bg.width,bg.height);
+      ctx.drawImage(img,0,0,_croquisW,_croquisH);
+      F.croquisFondo=bg.toDataURL('image/jpeg',.85);
+      // limpiar dibujo al cambiar fondo
+      if(_croquisCtx){_croquisCtx.clearRect(0,0,_croquisW,_croquisH);F.dibujoEsquematico='';}
+      autoGuardar();toast('Fondo cargado ✓');
+    };img.src=e.target.result;
+  };r.readAsDataURL(file);ev.target.value='';
+}
+function limpiarDibujo(){
+  if(!_croquisCtx)return;
+  _croquisCtx.clearRect(0,0,_croquisW,_croquisH);
+  F.dibujoEsquematico='';autoGuardar();
+}
+function limpiarTodo(){
+  if(!confirm('¿Limpiar fondo y dibujo?'))return;
+  const bg=document.getElementById('croquisBg');
+  if(bg)bg.getContext('2d').clearRect(0,0,bg.width,bg.height);
+  if(_croquisCtx)_croquisCtx.clearRect(0,0,_croquisW,_croquisH);
+  F.croquisFondo='';F.dibujoEsquematico='';autoGuardar();
+}
 
 // ---- Fotos ----
 function fileToDataUrl(file){return new Promise(res=>{const img=new Image(),r=new FileReader();r.onload=e=>{img.onload=()=>{const max=1600;let w=img.width,h=img.height;if(w>h&&w>max){h=h*max/w;w=max;}else if(h>max){w=w*max/h;h=max;}const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);res(cv.toDataURL('image/jpeg',.82));};img.src=e.target.result;};r.readAsDataURL(file);});}
-async function agregarFoto(ev){const file=ev.target.files[0];if(!file)return;F.fotos.push({id:uuid(),dataUrl:await fileToDataUrl(file)});ev.target.value='';renderStep();}
-function quitarFoto(i){F.fotos.splice(i,1);renderStep();}
+async function agregarFoto(ev){const file=ev.target.files[0];if(!file)return;F.fotos.push({id:uuid(),dataUrl:await fileToDataUrl(file)});ev.target.value='';autoGuardar();renderStep();}
+function quitarFoto(i){F.fotos.splice(i,1);autoGuardar();renderStep();}
 
-// ---- Escaneo con recorte ----
+// ---- Escaneo ----
 let _cropImg=null,_cropPts=null,_cropCv=null,_anexoNombre='';
 function pedirNombreYEscanear(){
   const n=prompt('Nombre del documento:\n(ej: RUT, Escritura, DAA, Certificado)','');
-  if(n===null)return;
-  _anexoNombre=n.trim()||'Documento';
+  if(n===null)return;_anexoNombre=n.trim()||'Documento';
   document.getElementById('anexoInput').click();
 }
 function iniciarEscaneo(ev){
@@ -418,25 +493,19 @@ function applyCrop(){
   }
   oct.putImageData(od,0,0);
   F.anexos.push({id:uuid(),etiqueta:_anexoNombre,dataUrl:oc.toDataURL('image/jpeg',.86)});
-  document.getElementById('cropModal').style.display='none';renderStep();
+  document.getElementById('cropModal').style.display='none';autoGuardar();renderStep();
 }
-function renombrarAnexo(i,v){F.anexos[i].etiqueta=v;}
-function quitarAnexo(i){F.anexos.splice(i,1);renderStep();}
-function descargarAnexo(i){
-  const a=F.anexos[i];
-  const link=document.createElement('a');
-  link.href=a.dataUrl;
-  link.download=(a.etiqueta||'anexo').replace(/[^\w\s-]/g,'')+'_'+(i+1)+'.jpg';
-  link.click();
-}
+function renombrarAnexo(i,v){F.anexos[i].etiqueta=v;autoGuardar();}
+function quitarAnexo(i){F.anexos.splice(i,1);autoGuardar();renderStep();}
+function descargarAnexo(i){const a=F.anexos[i];const l=document.createElement('a');l.href=a.dataUrl;l.download=(a.etiqueta||'anexo').replace(/[^\w\s-]/g,'')+'_'+(i+1)+'.jpg';l.click();}
 
-// ---- Exportar JSON ----
+// ---- JSON ----
 function nombreBase(){return((F.contacto.nombre||'ficha').trim().replace(/\s+/g,'_').replace(/[^\w-]/g,'')||'ficha')+'_'+F.fecha;}
 function descargar(nombre,txt,mime){const b=new Blob([txt],{type:mime}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=nombre;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);}
 function exportarJSONCompleto(){guardarPasoActual();descargar(nombreBase()+'.json',JSON.stringify(F,null,2),'application/json');toast('JSON exportado');}
 function exportarJSONDisenador(){
   guardarPasoActual();
-  const sys=F.proyecto.sistemaRiego;if(!sys){toast('Selecciona el sistema de riego principal');return;}
+  const sys=F.proyecto.sistemaRiego;if(!sys){toast('Selecciona el sistema de riego principal en Datos generales');return;}
   const pfx=PFX[sys],p=F.proyecto,c=F.contacto,fu=F.fuente,te=F.tenencia,sf=F.srf;
   const cult=sf.cultivo==='Otro'?sf.cultivoOtro:sf.cultivo;
   const fields={};
@@ -467,7 +536,17 @@ function exportarPDF(){
   const tbl=(...rows)=>`<table style="width:100%;border-collapse:collapse">${rows.join('')}</table>`;
   const row=(l,v,l2,v2)=>l2!==undefined?`<tr><td style="${L}">${l}</td><td style="${V}">${esc(v)}</td><td style="${L}">${l2}</td><td style="${V}">${esc(v2)}</td></tr>`:`<tr><td style="${L}">${l}</td><td style="${V}" colspan="3">${esc(v)}</td></tr>`;
   const coord=(n,e,h)=>n?`N ${n} · E ${e} · H ${h}`:'—';
-  const sys2label=v=>SISTEMA_MAP[v]||'';
+
+  // croquis: compositar fondo + dibujo para PDF
+  let croquisUrl='';
+  if(F_.croquisFondo||F_.dibujoEsquematico){
+    const cv=document.createElement('canvas');cv.width=800;cv.height=600;
+    const ctx=cv.getContext('2d');
+    const drawLayers=()=>{croquisUrl=cv.toDataURL('image/jpeg',.85);};
+    if(F_.croquisFondo){const i=new Image();i.onload=()=>{ctx.drawImage(i,0,0,800,600);if(F_.dibujoEsquematico){const j=new Image();j.onload=()=>{ctx.drawImage(j,0,0,800,600);drawLayers();};j.src=F_.dibujoEsquematico;}else drawLayers();};i.src=F_.croquisFondo;}
+    else if(F_.dibujoEsquematico){const i=new Image();i.onload=()=>{ctx.drawImage(i,0,0,800,600);drawLayers();};i.src=F_.dibujoEsquematico;}
+  }
+
   const html=`<div style="font-family:Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:0 auto">
   <h2 style="text-align:center;margin:0 0 2px;font-size:14px">FICHA VISITA TERRENO</h2>
   <p style="text-align:center;margin:0 0 6px;font-size:11px">Para levantamiento de demanda</p>
@@ -477,7 +556,7 @@ function exportarPDF(){
   ${sec('Beneficiario')}
   ${tbl(row('Nombre',c.nombre,'RUT',c.rut),row('Teléfono',c.telefono,'Región',c.region),row('Comuna',c.comuna,'Sector / Localidad',c.sector))}
   ${sec('Proyecto')}
-  ${tbl(row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),row('Sistema principal',sys2label(p.sistemaRiego)||'—','Sistema secundario',sys2label(p.sistemasNota)||'—'),row('Sup. Total / Sup. a Regar [ha]',(p.supTotalHa||'—')+' / '+(p.supRegarHa||'—'),'Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso)))}
+  ${tbl(row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),row('Sistema principal',SISTEMA_MAP[p.sistemaRiego]||'—','Sistema secundario',SISTEMA_MAP[p.sistemaSecundario]||'—'),row('Sup. Total / Sup. a Regar [ha]',(p.supTotalHa||'—')+' / '+(p.supRegarHa||'—'),'Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso)))}
   ${sec('1. Fuente de agua')}
   ${tbl(row('Tipo fuente',fu.tipo,'Coord. captación',coord(fu.coordNorte,fu.coordEste,fu.huso)),row('Caudal disponible [l/s]',fu.caudalLs||'—','Hrs. de riego/día',fu.horasRiegoDia||'—'),row('Características',fu.caracteristicas,'Observaciones',fu.observaciones))}
   ${sec('2. Tenencia de tierra y agua')}
@@ -486,31 +565,32 @@ function exportarPDF(){
   <table style="width:100%;border-collapse:collapse">
     <tr><td style="${K}"></td><td style="${H}">SRA — Superficie actual</td><td style="${H}">SRF — Superficie futura</td></tr>
     <tr><td style="${K}">Cultivo</td><td style="${D}">${esc(cult(a))}</td><td style="${D}">${esc(cult(sf))}</td></tr>
-    <tr><td style="${K}">Superficie [m²]</td><td style="${D}">${esc(a.superficieM2)}</td><td style="${D}">${esc(sf.superficieM2)}</td></tr>
+    <tr><td style="${K}">Superficie [m²]</td><td style="${D}">${esc(a.superficieM2)}</td><td style="${D}">${esc(p.supRegarHa?p.supRegarHa+' ha':'—')}</td></tr>
     <tr><td style="${K}">Método de riego</td><td style="${D}">${esc(a.metodo)}</td><td style="${D}">${esc(sf.metodo)}</td></tr>
     <tr><td style="${K}">Meses</td><td style="${D}">${esc(a.meses)}</td><td style="${D}">${esc(sf.meses)}</td></tr>
     <tr><td style="${K}">Obras</td><td style="${D}">${esc(a.obras)}</td><td style="${D}">${esc(sf.obras)}</td></tr>
   </table>
   ${sec('4. Energía y otros antecedentes')}
-  ${tbl(row('Energía disponible',en.tipoDisponible,'Energía proyectada',en.tipoProyectada),row('Con inicio de actividades',ot.inicioActividades,'Incluye IVA',ot.incluyeIVA),row('Usuario INDAP',ot.usuarioIndap,'Descripción / Notas',ot.descripcion))}
-  <div style="display:flex;gap:40px;margin-top:28px;page-break-inside:avoid">
-    <div style="flex:1;text-align:center"><div style="height:72px;display:flex;align-items:flex-end;justify-content:center">${F_.firmaEncuestador?`<img src="${F_.firmaEncuestador}" style="max-height:72px">`:''}</div><div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:9.5px">Firma encuestador / consultor</div></div>
-    <div style="flex:1;text-align:center"><div style="height:72px;display:flex;align-items:flex-end;justify-content:center">${F_.firmaBeneficiario?`<img src="${F_.firmaBeneficiario}" style="max-height:72px">`:''}</div><div style="border-top:1.5px solid #333;margin-top:6px;padding-top:4px;font-size:9.5px">Firma beneficiario / agricultor(a)</div></div>
-  </div>
-  ${F_.dibujoEsquematico?`<div class="pbreak">${sec('Croquis esquemático')}<img src="${F_.dibujoEsquematico}" style="width:100%;border:1px solid #b8c9db;margin-top:6px"></div>`:''}
+  ${tbl(row('Energía disponible',en.tipoDisponible,'Energía proyectada',en.tipoProyectada),row('Con inicio de actividades',ot.inicioActividades,'Incluye IVA',ot.incluyeIVA),row('Usuario INDAP',ot.usuarioIndap,'Notas',en.notas))}
+  ${(F_.croquisFondo||F_.dibujoEsquematico)?`<div class="pbreak">${sec('Croquis / Esquema')}<div id="pdfCroquis" style="margin-top:6px;border:1px solid #b8c9db"></div></div>`:''}
   ${F_.fotos.length?`<div class="pbreak">${sec('Fotos referenciales')}<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">${F_.fotos.map(f=>`<img src="${f.dataUrl}" style="width:calc(50% - 5px);border:1px solid #b8c9db;border-radius:4px">`).join('')}</div></div>`:''}
   ${F_.anexos.length?`<div class="pbreak">${sec('Documentos anexos')}<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:8px">${F_.anexos.map((ax,i)=>`<div style="width:calc(50% - 8px);page-break-inside:avoid;margin-bottom:12px"><div style="font-weight:700;font-size:10.5px;margin-bottom:4px">${i+1}. ${esc(ax.etiqueta||'Documento')}</div><img src="${ax.dataUrl}" style="width:100%;border:1px solid #b8c9db;border-radius:4px"></div>`).join('')}</div></div>`:''}
 </div>`;
 
-  // Overlay dentro de la misma página — funciona en iPad PWA sin perder contexto
   const old=document.getElementById('pdfOverlay');if(old)old.remove();
-  const overlay=document.createElement('div');
-  overlay.id='pdfOverlay';overlay.className='pdf-overlay';
-  overlay.innerHTML=`<div class="pdf-bar">
-    <button class="btn pri" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
-    <button class="btn" onclick="cerrarPDF()">✕ Cerrar</button>
-  </div><div id="pdfContent">${html}</div>`;
+  const overlay=document.createElement('div');overlay.id='pdfOverlay';overlay.className='pdf-overlay';
+  overlay.innerHTML=`<div class="pdf-bar"><button class="btn pri" onclick="window.print()">🖨 Imprimir / Guardar PDF</button><button class="btn" onclick="cerrarPDF()">✕ Cerrar</button></div><div id="pdfContent">${html}</div>`;
   document.body.appendChild(overlay);
+
+  // insertar croquis compuesto en el PDF
+  if(F_.croquisFondo||F_.dibujoEsquematico){
+    const cont=overlay.querySelector('#pdfCroquis');if(!cont)return;
+    const cv=document.createElement('canvas');cv.width=800;cv.height=600;cv.style.width='100%';
+    const ctx=cv.getContext('2d');cont.appendChild(cv);
+    const finish=()=>{if(F_.dibujoEsquematico){const j=new Image();j.onload=()=>ctx.drawImage(j,0,0,800,600);j.src=F_.dibujoEsquematico;}};
+    if(F_.croquisFondo){const i=new Image();i.onload=()=>{ctx.drawImage(i,0,0,800,600);finish();};i.src=F_.croquisFondo;}
+    else finish();
+  }
 }
 
 // ---- Init ----
