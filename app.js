@@ -26,7 +26,7 @@ function blankFicha(){
   return{id:uuid(),fecha:new Date().toISOString().slice(0,10),creado:Date.now(),modificado:Date.now(),
     contacto:{nombre:'',rut:'',telefono:'',region:'Ñuble',comuna:'',sector:''},
     proyecto:{nombreProyecto:'',consultor:'',rolAvaluo:'',sistemaRiego:'',sistemaSecundario:'',supTotalHa:'',supRegarHa:'',coordNorte:'',coordEste:'',huso:'18'},
-    fuente:{tipo:'',coordNorte:'',coordEste:'',huso:'18',caracteristicas:'',observaciones:'',caudalLs:'',horasRiegoDia:''},
+    fuente:{tipo:'',coordNorte:'',coordEste:'',huso:'18',caracteristicas:'',observaciones:'',caudalLs:'',horasRiegoDia:'',alturaSuccion:'',deltaZ:''},
     tenencia:{tipoTierra:'',tipoDerecho:''},
     sra:{cultivo:'',cultivoOtro:'',superficieM2:'',metodo:'',meses:'',obras:''},
     srf:{cultivo:'',cultivoOtro:'',metodo:'',meses:'',obras:''},
@@ -44,6 +44,8 @@ function migrar(f){
   if(!f.proyecto.sistemaSecundario)f.proyecto.sistemaSecundario=f.proyecto.sistemasNota||'';
   if(Array.isArray(f.proyecto.sistemas)&&!f.proyecto.sistemaRiego)f.proyecto.sistemaRiego=f.proyecto.sistemas[0]||'';
   if(!f.contacto.region)f.contacto.region='Ñuble';
+  if(f.fuente.alturaSuccion===undefined)f.fuente.alturaSuccion='';
+  if(f.fuente.deltaZ===undefined)f.fuente.deltaZ='';
   if(!f.croquisFondo)f.croquisFondo='';
   if(f.otros.usuarioIndap===undefined)f.otros.usuarioIndap=f.otros.participaINDAP||'Si';
   // borrar campos viejos que ya no se usan
@@ -176,6 +178,8 @@ const RENDERERS={
       ${field('Tipo fuente de agua','fu-tipo',f.tipo,{type:'select',options:FUENTES_DEFAULT,full:true})}
       ${field('Caudal disponible [l/s]','fu-caudal',f.caudalLs,{type:'number',step:'.01',placeholder:'3.00'})}
       ${field('Hrs. riego/día','fu-horas',f.horasRiegoDia,{type:'number',placeholder:'14'})}
+      ${field('Altura de succión [m]','fu-hs',f.alturaSuccion,{type:'number',step:'.1',placeholder:'Desnivel bomba–espejo de agua'})}
+      ${field('Diferencia de cota ΔZ [m]','fu-dz',f.deltaZ,{type:'number',step:'.1',placeholder:'Desnivel fuente–punto de riego'})}
       ${field('Características','fu-caract',f.caracteristicas,{full:true,placeholder:'Ej: diámetro, profundidad'})}
       ${field('Observaciones','fu-obs',f.observaciones,{full:true})}
     </div>
@@ -269,9 +273,10 @@ const RENDERERS={
       <button class="btn sm warn" onclick="quitarAnexo(${i})">✕</button>
     </div>`).join('');
     return `<div class="sl">Documentos escaneados</div>
-    <p class="hint">Ingresa el nombre del documento antes de tomar la foto. Se recortará y enderezará automáticamente.</p>
+    <p class="hint">Ingresa el nombre del documento antes de tomar la foto. Se recortará y enderezará automáticamente. Van incluidos en el .json completo; además puedes descargarlos como imágenes sueltas para subirlos donde corresponda.</p>
     <input type="file" accept="image/*" capture="environment" id="anexoInput" style="display:none" onchange="iniciarEscaneo(event)">
     <button class="btn pri" onclick="pedirNombreYEscanear()">📄 Escanear documento</button>
+    ${F.anexos.length?`<button class="btn sm" style="margin-left:8px" onclick="descargarTodosAnexos()">⬇ Descargar todos</button>`:''}
     ${items}`;
   },
 
@@ -299,6 +304,7 @@ function guardarPasoActual(){
   }else if(s==='fuente_tenencia'){
     const f=F.fuente,t=F.tenencia;
     f.tipo=val('fu-tipo');f.caudalLs=val('fu-caudal');f.horasRiegoDia=val('fu-horas');
+    f.alturaSuccion=val('fu-hs');f.deltaZ=val('fu-dz');
     f.caracteristicas=val('fu-caract');f.observaciones=val('fu-obs');
     f.coordNorte=val('fu-utmn');f.coordEste=val('fu-utme');f.huso=val('fu-huso');
     t.tipoTierra=val('te-tierra');t.tipoDerecho=val('te-derecho');
@@ -512,6 +518,17 @@ function applyCrop(){
 function renombrarAnexo(i,v){F.anexos[i].etiqueta=v;autoGuardar();}
 function quitarAnexo(i){F.anexos.splice(i,1);autoGuardar();renderStep();}
 function descargarAnexo(i){const a=F.anexos[i];const l=document.createElement('a');l.href=a.dataUrl;l.download=(a.etiqueta||'anexo').replace(/[^\w\s-]/g,'')+'_'+(i+1)+'.jpg';l.click();}
+function descargarTodosAnexos(){
+  if(!F.anexos.length){toast('No hay anexos');return;}
+  F.anexos.forEach((a,i)=>{
+    setTimeout(()=>{
+      const l=document.createElement('a');l.href=a.dataUrl;
+      l.download=(a.etiqueta||'anexo').replace(/[^\w\s-]/g,'')+'_'+(i+1)+'.jpg';
+      document.body.appendChild(l);l.click();l.remove();
+    }, i*400); // espaciado para que el navegador no bloquee descargas múltiples
+  });
+  toast('Descargando '+F.anexos.length+' anexo(s)…');
+}
 
 // ---- JSON ----
 function nombreBase(){return((F.contacto.nombre||'ficha').trim().replace(/\s+/g,'_').replace(/[^\w-]/g,'')||'ficha')+'_'+F.fecha;}
@@ -531,6 +548,7 @@ function exportarJSONDisenador(){
   if(sys==='asp'&&p.supTotalHa)fields['a-sttot']=p.supTotalHa;
   fields[pfx+'-cult']=cult||'';fields[pfx+'-tfue']=fu.tipo||'';
   fields[pfx+'-der-tipo']=te.tipoDerecho||'';fields[pfx+'-q']=fu.caudalLs||'';fields[pfx+'-hrs']=fu.horasRiegoDia||'';
+  fields[pfx+'-hs']=fu.alturaSuccion||'';fields[pfx+'-dz']=fu.deltaZ||'';
   descargar(nombreBase()+'_Disenador_'+SISTEMA_MAP[sys]+'.json',JSON.stringify({__sys:sys,__name:p.nombreProyecto||c.nombre||'Proyecto',__date:new Date().toLocaleString('es-CL'),fields},null,2),'application/json');
   toast('JSON para Diseñador exportado');
 }
@@ -573,7 +591,7 @@ function exportarPDF(){
   ${tbl(row('Nombre del proyecto',p.nombreProyecto),
     row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),row('Sistema principal',SISTEMA_MAP[p.sistemaRiego]||'—','Sistema secundario',SISTEMA_MAP[p.sistemaSecundario]||'—'),row('Sup. Total / Sup. a Regar [ha]',(p.supTotalHa||'—')+' / '+(p.supRegarHa||'—'),'Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso)))}
   ${sec('1. Fuente de agua')}
-  ${tbl(row('Tipo fuente',fu.tipo,'Coord. captación',coord(fu.coordNorte,fu.coordEste,fu.huso)),row('Caudal disponible [l/s]',fu.caudalLs||'—','Hrs. de riego/día',fu.horasRiegoDia||'—'),row('Características',fu.caracteristicas,'Observaciones',fu.observaciones))}
+  ${tbl(row('Tipo fuente',fu.tipo,'Coord. captación',coord(fu.coordNorte,fu.coordEste,fu.huso)),row('Caudal disponible [l/s]',fu.caudalLs||'—','Hrs. de riego/día',fu.horasRiegoDia||'—'),row('Altura succión [m]',fu.alturaSuccion||'—','Diferencia de cota ΔZ [m]',fu.deltaZ||'—'),row('Características',fu.caracteristicas,'Observaciones',fu.observaciones))}
   ${sec('2. Tenencia de tierra y agua')}
   ${tbl(row('Tipo tenencia de la tierra',te.tipoTierra,'Tipo de derecho de agua',te.tipoDerecho))}
   ${sec('3. Superficie de riego')}
