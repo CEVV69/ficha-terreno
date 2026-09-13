@@ -1,4 +1,4 @@
-const CACHE = 'ficha-terreno-v5';
+const CACHE = 'ficha-terreno-v6';
 const ASSETS = ['./index.html','./app.js','./manifest.json','./icon-192.png','./icon-512.png'];
 
 self.addEventListener('install', e=>{

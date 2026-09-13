@@ -231,10 +231,16 @@ const RENDERERS={
       3) Toca "Importar foto de fondo" y elige tu screenshot<br>
       4) Dibuja sobre el mapa con tu dedo
     </p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
       <button class="btn" onclick="abrirMapas()">🗺 Abrir Mapas</button>
       <input type="file" accept="image/*" id="fondoInput" style="display:none" onchange="setFondo(event)">
       <button class="btn" onclick="document.getElementById('fondoInput').click()">📷 Importar foto de fondo</button>
+      <span style="display:flex;gap:6px;align-items:center;margin-left:4px">
+        <label style="font-size:.8rem;font-weight:700">Color:</label>
+        <button onclick="setLapiz('#000000')" style="width:30px;height:30px;border-radius:50%;background:#000;border:2px solid #999;cursor:pointer"></button>
+        <button onclick="setLapiz('#ffffff')" style="width:30px;height:30px;border-radius:50%;background:#fff;border:2px solid #999;cursor:pointer"></button>
+        <button onclick="setLapiz('#1e5f9e')" style="width:30px;height:30px;border-radius:50%;background:#1e5f9e;border:2px solid #999;cursor:pointer"></button>
+      </span>
       <button class="btn sm" onclick="limpiarDibujo()">✏️ Limpiar dibujo</button>
       <button class="btn sm warn" onclick="limpiarTodo()">🗑 Limpiar todo</button>
     </div>
@@ -334,7 +340,7 @@ function toUTM(lat,lon){
 }
 
 // ---- Croquis ----
-let _croquisCtx=null, _croquisW=0, _croquisH=0;
+let _croquisCtx=null, _croquisW=0, _croquisH=0, _croquisDpr=1, _lapizColor='#000000';
 
 function initCroquis(){
   const cv=document.getElementById('croquisCanvas');
@@ -346,16 +352,14 @@ function initCroquis(){
   cv.width=w*dpr; cv.height=h*dpr;
   bg.width=w*dpr; bg.height=h*dpr;
   const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
-  _croquisCtx=ctx; _croquisW=w; _croquisH=h;
-  ctx.lineWidth=2.5; ctx.lineCap='round'; ctx.strokeStyle='#c0392b';
+  _croquisCtx=ctx; _croquisW=w; _croquisH=h; _croquisDpr=dpr;
+  ctx.lineWidth=3; ctx.lineCap='round'; ctx.strokeStyle=_lapizColor;
 
-  // dibujar fondo si existe
   if(F.croquisFondo){
     const img=new Image();
     img.onload=()=>{
-      const bctx=bg.getContext('2d'); bctx.scale(dpr,dpr);
-      bctx.drawImage(img,0,0,w,h);
-      // restaurar dibujo encima si existe
+      const bctx=bg.getContext('2d');
+      bctx.drawImage(img,0,0,bg.width,bg.height);
       if(F.dibujoEsquematico){const d=new Image();d.onload=()=>ctx.drawImage(d,0,0,w,h);d.src=F.dibujoEsquematico;}
     };img.src=F.croquisFondo;
   }else if(F.dibujoEsquematico){
@@ -380,15 +384,22 @@ function initCroquis(){
   cv.addEventListener('touchstart',start,{passive:false});cv.addEventListener('touchmove',move,{passive:false});cv.addEventListener('touchend',end);
 }
 
+function esIOS(){
+  const ua=navigator.userAgent;
+  if(/iP(hone|od)/.test(ua))return true;
+  // iPadOS 13+ se reporta como "Macintosh" — se distingue por soporte táctil
+  if(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1)return true;
+  return /iPad/.test(ua);
+}
 function abrirMapas(){
   const n=F.proyecto.coordNorte, e=F.proyecto.coordEste;
   const lat=n&&e?utmToLatLon(parseFloat(n),parseFloat(e),parseInt(F.proyecto.huso)||18):null;
-  const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent);
+  const isIOS=esIOS();
   if(lat){
-    const url=isIOS?`maps://?q=${lat.lat},${lat.lon}&z=17`:`https://maps.google.com/?q=${lat.lat},${lat.lon}&z=17`;
-    window.open(url,'_blank');
+    const url=isIOS?`maps://?ll=${lat.lat},${lat.lon}&q=Predio&z=17`:`https://maps.google.com/?q=${lat.lat},${lat.lon}&z=17`;
+    window.location.href=url;
   }else{
-    window.open(isIOS?'maps://':'https://maps.google.com/','_blank');
+    window.location.href=isIOS?'maps://':'https://maps.google.com/';
     toast('Sin coordenadas — abre en tu ubicación actual');
   }
 }
@@ -411,17 +422,20 @@ function setFondo(ev){
   const r=new FileReader();r.onload=e=>{
     const img=new Image();img.onload=()=>{
       const bg=document.getElementById('croquisBg');if(!bg)return;
-      const dpr=window.devicePixelRatio||1;
       const ctx=bg.getContext('2d');
       ctx.clearRect(0,0,bg.width,bg.height);
-      ctx.drawImage(img,0,0,_croquisW,_croquisH);
+      // cubrir todo el canvas manteniendo proporción (estilo "cover")
+      const cw=bg.width, ch=bg.height, ir=img.width/img.height, cr=cw/ch;
+      let dw,dh,dx,dy;
+      if(ir>cr){dh=ch;dw=ch*ir;dx=(cw-dw)/2;dy=0;}else{dw=cw;dh=cw/ir;dx=0;dy=(ch-dh)/2;}
+      ctx.drawImage(img,dx,dy,dw,dh);
       F.croquisFondo=bg.toDataURL('image/jpeg',.85);
-      // limpiar dibujo al cambiar fondo
       if(_croquisCtx){_croquisCtx.clearRect(0,0,_croquisW,_croquisH);F.dibujoEsquematico='';}
       autoGuardar();toast('Fondo cargado ✓');
     };img.src=e.target.result;
   };r.readAsDataURL(file);ev.target.value='';
 }
+function setLapiz(color){_lapizColor=color;if(_croquisCtx)_croquisCtx.strokeStyle=color;}
 function limpiarDibujo(){
   if(!_croquisCtx)return;
   _croquisCtx.clearRect(0,0,_croquisW,_croquisH);
@@ -527,7 +541,7 @@ function exportarPDF(){
   guardarPasoActual();
   const F_=F,c=F_.contacto,p=F_.proyecto,fu=F_.fuente,te=F_.tenencia,a=F_.sra,sf=F_.srf,en=F_.energia,ot=F_.otros;
   const cult=v=>v&&v.cultivo==='Otro'?v.cultivoOtro:(v?v.cultivo:'');
-  const L='background:#edf3f9;font-weight:700;padding:5px 8px;border:1px solid #b8c9db;width:35%;font-size:10px',
+  const L='background:#edf3f9;font-weight:700;padding:5px 8px;border:1px solid #b8c9db;width:24%;font-size:10px',
         V='background:#fff;padding:5px 8px;border:1px solid #b8c9db;font-size:10.5px',
         H='background:#1e3a5f;color:#fff;font-weight:700;padding:5px 8px;border:1px solid #0b2545;text-align:center;font-size:10px',
         K='background:#edf3f9;font-weight:600;padding:5px 8px;border:1px solid #b8c9db;font-size:10px',
@@ -551,12 +565,13 @@ function exportarPDF(){
   <h2 style="text-align:center;margin:0 0 2px;font-size:14px">FICHA VISITA TERRENO</h2>
   <p style="text-align:center;margin:0 0 6px;font-size:11px">Para levantamiento de demanda</p>
   <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:4px">
-    <span><b>Fecha:</b> ${esc(F_.fecha)}</span><span><b>Proyecto:</b> ${esc(p.nombreProyecto)}</span>
+    <span><b>Fecha:</b> ${esc(F_.fecha)}</span>
   </div>
   ${sec('Beneficiario')}
   ${tbl(row('Nombre',c.nombre,'RUT',c.rut),row('Teléfono',c.telefono,'Región',c.region),row('Comuna',c.comuna,'Sector / Localidad',c.sector))}
   ${sec('Proyecto')}
-  ${tbl(row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),row('Sistema principal',SISTEMA_MAP[p.sistemaRiego]||'—','Sistema secundario',SISTEMA_MAP[p.sistemaSecundario]||'—'),row('Sup. Total / Sup. a Regar [ha]',(p.supTotalHa||'—')+' / '+(p.supRegarHa||'—'),'Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso)))}
+  ${tbl(row('Nombre del proyecto',p.nombreProyecto),
+    row('Consultor / Empresa',p.consultor,'ROL de Avalúo (SII)',p.rolAvaluo),row('Sistema principal',SISTEMA_MAP[p.sistemaRiego]||'—','Sistema secundario',SISTEMA_MAP[p.sistemaSecundario]||'—'),row('Sup. Total / Sup. a Regar [ha]',(p.supTotalHa||'—')+' / '+(p.supRegarHa||'—'),'Coordenadas proyecto',coord(p.coordNorte,p.coordEste,p.huso)))}
   ${sec('1. Fuente de agua')}
   ${tbl(row('Tipo fuente',fu.tipo,'Coord. captación',coord(fu.coordNorte,fu.coordEste,fu.huso)),row('Caudal disponible [l/s]',fu.caudalLs||'—','Hrs. de riego/día',fu.horasRiegoDia||'—'),row('Características',fu.caracteristicas,'Observaciones',fu.observaciones))}
   ${sec('2. Tenencia de tierra y agua')}
